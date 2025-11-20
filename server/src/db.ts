@@ -19,3 +19,15 @@ export const pool = mysql.createPool({
   queueLimit: 0,
 });
 
+// Test database connection on startup
+pool.getConnection()
+  .then((connection) => {
+    console.log('✅ Database connected successfully');
+    connection.release();
+  })
+  .catch((error) => {
+    console.error('❌ Database connection failed:', error.message);
+    console.error('Please check your database configuration in server/.env');
+    console.error('Make sure MySQL is running and the database exists.');
+  });
+

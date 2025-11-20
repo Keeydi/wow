@@ -24,13 +24,32 @@ router.post('/login', async (req, res) => {
   const { identifier, password } = parseResult.data;
 
   try {
-    const [rows] = await pool.execute<DbUser[]>(
-      `SELECT id, username, email, employee_id, full_name, role, password_hash, password_reset_required
-       FROM users
-       WHERE username = ? OR email = ? OR employee_id = ?
-       LIMIT 1`,
-      [identifier, identifier, identifier],
-    );
+    // First, try to select with password_reset_required column
+    // If it fails, we'll catch and retry without it
+    let rows: DbUser[];
+    try {
+      [rows] = await pool.execute<DbUser[]>(
+        `SELECT id, username, email, employee_id, full_name, role, password_hash, password_reset_required
+         FROM users
+         WHERE username = ? OR email = ? OR employee_id = ?
+         LIMIT 1`,
+        [identifier, identifier, identifier],
+      );
+    } catch (columnError: any) {
+      // If column doesn't exist, select without it
+      if (columnError?.code === 'ER_BAD_FIELD_ERROR') {
+        console.warn('password_reset_required column not found, selecting without it');
+        [rows] = await pool.execute<DbUser[]>(
+          `SELECT id, username, email, employee_id, full_name, role, password_hash
+           FROM users
+           WHERE username = ? OR email = ? OR employee_id = ?
+           LIMIT 1`,
+          [identifier, identifier, identifier],
+        );
+      } else {
+        throw columnError;
+      }
+    }
 
     const user = rows[0];
 
@@ -52,6 +71,11 @@ router.post('/login', async (req, res) => {
       { expiresIn: '2h' },
     );
 
+    // Convert MySQL boolean (0/1) to JavaScript boolean, default to false if column doesn't exist
+    const passwordResetRequired = (user as any).password_reset_required !== undefined 
+      ? Boolean((user as any).password_reset_required) 
+      : false;
+
     return res.json({
       token,
       user: {
@@ -61,12 +85,32 @@ router.post('/login', async (req, res) => {
         role: user.role,
         employeeId: user.employee_id,
         email: user.email,
-        passwordResetRequired: user.password_reset_required || false,
+        passwordResetRequired,
       },
     });
-  } catch (error) {
-    console.error('Login error', error);
-    return res.status(500).json({ message: 'Unexpected error while logging in' });
+  } catch (error: any) {
+    console.error('Login error:', error);
+    console.error('Error stack:', error?.stack);
+    console.error('Error code:', error?.code);
+    console.error('Error message:', error?.message);
+    
+    const errorMessage = error?.code === 'ECONNREFUSED' || error?.code === 'ER_ACCESS_DENIED_ERROR'
+      ? 'Database connection failed. Please check your database configuration.'
+      : error?.code === 'ER_BAD_DB_ERROR'
+      ? 'Database not found. Please ensure the database exists.'
+      : error?.code === 'ER_NO_SUCH_TABLE'
+      ? 'Database table not found. Please run the seed script.'
+      : 'Unexpected error while logging in';
+    
+    return res.status(500).json({
+      message: errorMessage,
+      error: process.env.NODE_ENV === 'development' || process.env.NODE_ENV !== 'production' 
+        ? error?.message 
+        : undefined,
+      code: process.env.NODE_ENV === 'development' || process.env.NODE_ENV !== 'production'
+        ? error?.code
+        : undefined,
+    });
   }
 });
 

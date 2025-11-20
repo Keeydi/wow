@@ -1,4 +1,5 @@
 import React, { createContext, useContext, useState, useEffect } from 'react';
+import { API_BASE_URL, getConnectionErrorMessage } from '@/lib/api';
 
 interface User {
   id: string;
@@ -26,7 +27,6 @@ interface AuthContextType {
 }
 
 const AuthContext = createContext<AuthContextType | undefined>(undefined);
-const API_BASE_URL = import.meta.env.VITE_API_URL || 'http://localhost:4000';
 
 const getStoredUser = (): User | null => {
   if (typeof window === 'undefined') return null;
@@ -95,9 +95,12 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
       return { success: true, user: userData };
     } catch (error) {
       console.error('Login error', error);
+      const errorMessage = error instanceof TypeError && error.message.includes('fetch')
+        ? getConnectionErrorMessage()
+        : 'Unable to reach the server. Please try again.';
       return {
         success: false,
-        message: 'Unable to reach the server. Please try again.',
+        message: errorMessage,
       };
     }
   };
