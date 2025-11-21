@@ -148,7 +148,7 @@ const employeeSchema = z.object({
   firstName: z.string().trim().min(1, 'First name is required'),
   middleName: z.string().trim().min(1, 'Middle name is required'),
   lastName: z.string().trim().min(1, 'Last name is required'),
-  suffixName: z.string().trim().min(1, 'Suffix is required'),
+  suffixName: z.string().trim().optional(),
   department: z.string().min(1, 'Department is required'),
   designation: z.string().min(1, 'Designation is required'),
   email: z.string().trim().email('Invalid email').max(255),
@@ -158,6 +158,7 @@ const employeeSchema = z.object({
   dateOfJoining: z.string().min(1, 'Date of joining is required'),
   employmentType: z.string().min(1, 'Employment type is required'),
   password: z.string().trim().min(6, 'Password must be at least 6 characters'),
+  registeredFaceFile: z.string().min(1, 'Face registration is required. Please capture face before adding employee.'),
 });
 
 const initialFormState = {
@@ -410,7 +411,7 @@ const Employees = () => {
       const validated = employeeSchema.parse(formData);
       setIsSubmitting(true);
 
-      const fullName = [validated.firstName, validated.middleName, validated.lastName, validated.suffixName]
+      const fullName = [validated.firstName, validated.middleName, validated.lastName, validated.suffixName || '']
         .filter((part) => part && part.trim().length)
         .join(' ')
         .replace(/\s+/g, ' ')
@@ -489,33 +490,110 @@ const Employees = () => {
     }
   };
 
-  const handleOpenEditDialog = (employee: Employee) => {
+  const handleOpenEditDialog = async (employee: Employee) => {
     setSelectedEmployee(employee);
-    setEditForm({
-      ...editFormDefault,
-      firstName: employee.firstName || '',
-      middleName: employee.middleName || '',
-      lastName: employee.lastName || '',
-      suffixName: employee.suffixName || '',
-      address: employee.address,
-      contactNumber: employee.phone,
-      dateOfBirth: employee.dateOfBirth,
-      email: employee.email,
-      employeeId: employee.employeeId,
-      department: employee.department,
-      designation: employee.position,
-      dateOfJoining: employee.dateHired,
-      status: employee.status === 'active' ? 'Active' : 'Inactive',
-      employmentType: employee.employmentType || 'Regular',
-      signatureFile: employee.signatureFile || '',
-      signatureFileSize: employee.signatureFile ? 'Uploaded' : '',
-      pdsFile: employee.pdsFile || '',
-      pdsFileSize: employee.pdsFile ? 'Uploaded' : '',
-      serviceRecordFile: employee.serviceRecordFile || '',
-      serviceRecordFileSize: employee.serviceRecordFile ? 'Uploaded' : '',
-      registeredFaceFile: employee.registeredFaceFile || '',
-      registeredFaceFileSize: employee.registeredFaceFile ? 'Captured' : '',
-    });
+    
+    // Fetch full employee data including password status
+    try {
+      const response = await fetch(`${API_BASE_URL}/employees/${employee.id}`);
+      if (response.ok) {
+        const data = await response.json();
+        const fullEmployee = data.data;
+        
+        setEditForm({
+          ...editFormDefault,
+          firstName: employee.firstName || '',
+          middleName: employee.middleName || '',
+          lastName: employee.lastName || '',
+          suffixName: employee.suffixName || '',
+          address: employee.address,
+          contactNumber: employee.phone,
+          dateOfBirth: employee.dateOfBirth,
+          email: employee.email,
+          employeeId: employee.employeeId,
+          department: employee.department,
+          designation: employee.position,
+          dateOfJoining: employee.dateHired,
+          status: employee.status === 'active' ? 'Active' : 'Inactive',
+          employmentType: employee.employmentType || 'Regular',
+          emergencyContact: employee.emergencyContact || '',
+          educationalBackground: employee.educationalBackground || '',
+          signatureFile: employee.signatureFile || '',
+          signatureFileSize: employee.signatureFile ? 'Uploaded' : '',
+          pdsFile: employee.pdsFile || '',
+          pdsFileSize: employee.pdsFile ? 'Uploaded' : '',
+          serviceRecordFile: employee.serviceRecordFile || '',
+          serviceRecordFileSize: employee.serviceRecordFile ? 'Uploaded' : '',
+          registeredFaceFile: employee.registeredFaceFile || '',
+          registeredFaceFileSize: employee.registeredFaceFile ? 'Captured' : '',
+          password: fullEmployee.password_hash ? '••••••••' : '', // Show placeholder if password exists
+          deactivationDate: fullEmployee.deactivation_date || '',
+          reactivationDate: fullEmployee.reactivation_date || '',
+        });
+      } else {
+        // Fallback to basic employee data
+        setEditForm({
+          ...editFormDefault,
+          firstName: employee.firstName || '',
+          middleName: employee.middleName || '',
+          lastName: employee.lastName || '',
+          suffixName: employee.suffixName || '',
+          address: employee.address,
+          contactNumber: employee.phone,
+          dateOfBirth: employee.dateOfBirth,
+          email: employee.email,
+          employeeId: employee.employeeId,
+          department: employee.department,
+          designation: employee.position,
+          dateOfJoining: employee.dateHired,
+          status: employee.status === 'active' ? 'Active' : 'Inactive',
+          employmentType: employee.employmentType || 'Regular',
+          emergencyContact: employee.emergencyContact || '',
+          educationalBackground: employee.educationalBackground || '',
+          signatureFile: employee.signatureFile || '',
+          signatureFileSize: employee.signatureFile ? 'Uploaded' : '',
+          pdsFile: employee.pdsFile || '',
+          pdsFileSize: employee.pdsFile ? 'Uploaded' : '',
+          serviceRecordFile: employee.serviceRecordFile || '',
+          serviceRecordFileSize: employee.serviceRecordFile ? 'Uploaded' : '',
+          registeredFaceFile: employee.registeredFaceFile || '',
+          registeredFaceFileSize: employee.registeredFaceFile ? 'Captured' : '',
+          password: '••••••••', // Assume password exists
+        });
+      }
+    } catch (error) {
+      console.error('Error fetching employee details:', error);
+      // Use basic employee data
+      setEditForm({
+        ...editFormDefault,
+        firstName: employee.firstName || '',
+        middleName: employee.middleName || '',
+        lastName: employee.lastName || '',
+        suffixName: employee.suffixName || '',
+        address: employee.address,
+        contactNumber: employee.phone,
+        dateOfBirth: employee.dateOfBirth,
+        email: employee.email,
+        employeeId: employee.employeeId,
+        department: employee.department,
+        designation: employee.position,
+        dateOfJoining: employee.dateHired,
+        status: employee.status === 'active' ? 'Active' : 'Inactive',
+        employmentType: employee.employmentType || 'Regular',
+        emergencyContact: employee.emergencyContact || '',
+        educationalBackground: employee.educationalBackground || '',
+        signatureFile: employee.signatureFile || '',
+        signatureFileSize: employee.signatureFile ? 'Uploaded' : '',
+        pdsFile: employee.pdsFile || '',
+        pdsFileSize: employee.pdsFile ? 'Uploaded' : '',
+        serviceRecordFile: employee.serviceRecordFile || '',
+        serviceRecordFileSize: employee.serviceRecordFile ? 'Uploaded' : '',
+        registeredFaceFile: employee.registeredFaceFile || '',
+        registeredFaceFileSize: employee.registeredFaceFile ? 'Captured' : '',
+        password: '••••••••',
+      });
+    }
+    
     setShowEditDialog(true);
   };
 
@@ -538,14 +616,34 @@ const Employees = () => {
       try {
         setIsSubmitting(true);
         
-        // Build update payload - for status-only updates, just send status
+        // Build update payload - include all fields
         const updatePayload: Record<string, any> = {
           status: editForm.status.toLowerCase(),
           firstName: editForm.firstName || undefined,
           middleName: editForm.middleName || undefined,
           lastName: editForm.lastName || undefined,
           suffixName: editForm.suffixName || undefined,
+          address: editForm.address || undefined,
+          phone: editForm.contactNumber || undefined,
+          dateOfBirth: editForm.dateOfBirth || undefined,
+          email: editForm.email || undefined,
+          department: editForm.department || undefined,
+          position: editForm.designation || undefined,
+          dateHired: editForm.dateOfJoining || undefined,
+          dateOfLeaving: editForm.dateOfLeaving || undefined,
+          employmentType: editForm.employmentType || undefined,
+          role: editForm.role || undefined,
+          gender: editForm.gender || undefined,
+          civilStatus: editForm.civilStatus || undefined,
+          sssNumber: editForm.sssNumber || undefined,
+          pagibigNumber: editForm.pagibigNumber || undefined,
+          tinNumber: editForm.tinNumber || undefined,
+          emergencyContact: editForm.emergencyContact || undefined,
+          educationalBackground: editForm.educationalBackground || undefined,
           registeredFaceFile: editForm.registeredFaceFile || undefined,
+          password: editForm.password && editForm.password !== '••••••••' && editForm.password.trim() !== '' ? editForm.password : undefined,
+          deactivationDate: editForm.deactivationDate || undefined,
+          reactivationDate: editForm.reactivationDate || undefined,
         };
 
         const response = await fetch(`${API_BASE_URL}/employees/${selectedEmployee.id}`, {
@@ -919,11 +1017,11 @@ const Employees = () => {
                 />
                 {formErrors.lastName && <p className="text-sm text-destructive">{formErrors.lastName}</p>}
               </EditField>
-              <EditField label="Suffix Name *">
+              <EditField label="Suffix Name">
                 <Input
                   value={formData.suffixName}
                   onChange={(e) => setFormData({...formData, suffixName: e.target.value})}
-                  placeholder="Jr., Sr., III, etc."
+                  placeholder="Jr., Sr., III, etc. (Optional)"
                 />
                 {formErrors.suffixName && <p className="text-sm text-destructive">{formErrors.suffixName}</p>}
               </EditField>
@@ -973,6 +1071,8 @@ const Employees = () => {
                   type="date"
                   value={formData.dateOfBirth}
                   onChange={(e) => setFormData({...formData, dateOfBirth: e.target.value})}
+                  min="1900-01-01"
+                  max={new Date().toISOString().split('T')[0]}
                 />
                 {formErrors.dateOfBirth && <p className="text-sm text-destructive">{formErrors.dateOfBirth}</p>}
               </EditField>
@@ -1167,23 +1267,29 @@ const Employees = () => {
                   </span>
                 </div>
               </EditField>
-              <EditField label="Register Face">
+              <EditField label="Register Face *">
                 <div className="space-y-2">
                   {formData.registeredFaceFile ? (
-                    <img
-                      src={formData.registeredFaceFile}
-                      alt="Captured face"
-                      className="w-full h-40 object-cover rounded-xl border border-border/70"
-                    />
+                    <div className="space-y-2">
+                      <img
+                        src={formData.registeredFaceFile}
+                        alt="Captured face"
+                        className="w-full h-40 object-cover rounded-xl border border-border/70"
+                      />
+                      <p className="text-xs text-green-600 font-medium">✓ Face registered successfully</p>
+                    </div>
                   ) : (
-                    <div className="w-full h-40 border border-dashed border-border/60 rounded-xl flex items-center justify-center text-sm text-muted-foreground">
-                      No face captured yet
+                    <div className="w-full h-40 border-2 border-dashed border-destructive/50 rounded-xl flex flex-col items-center justify-center text-sm text-muted-foreground bg-destructive/5">
+                      <Camera className="w-8 h-8 mb-2 text-destructive/50" />
+                      <p>No face captured yet</p>
+                      <p className="text-xs text-destructive mt-1">Face registration required</p>
                     </div>
                   )}
                   <Button type="button" variant="outline" className="w-full" onClick={() => openFaceCamera('add')}>
                     <Camera className="w-4 h-4 mr-2" />
                     {formData.registeredFaceFile ? 'Retake Photo' : 'Open Camera'}
                   </Button>
+                  {formErrors.registeredFaceFile && <p className="text-sm text-destructive">{formErrors.registeredFaceFile}</p>}
                 </div>
               </EditField>
             </section>
@@ -1319,7 +1425,13 @@ const Employees = () => {
                 </Select>
               </EditField>
               <EditField label="Date of Birth">
-                <Input type="date" value={editForm.dateOfBirth} onChange={(e) => handleEditFieldChange('dateOfBirth', e.target.value)} />
+                <Input 
+                  type="date" 
+                  value={editForm.dateOfBirth} 
+                  onChange={(e) => handleEditFieldChange('dateOfBirth', e.target.value)}
+                  min="1900-01-01"
+                  max={new Date().toISOString().split('T')[0]}
+                />
               </EditField>
               <EditField label="Email">
                 <Input type="email" value={editForm.email} onChange={(e) => handleEditFieldChange('email', e.target.value)} />
@@ -1400,25 +1512,115 @@ const Employees = () => {
                 <AttachmentDisplay fileName={editForm.signatureFile} fileSize={editForm.signatureFileSize} placeholder="12345.png" />
               </EditField>
               <EditField label="PDS">
-                <AttachmentDisplay fileName={editForm.pdsFile} fileSize={editForm.pdsFileSize} placeholder="pds_admin.pdf" />
-              </EditField>
-              <EditField label="Service Record">
-                <AttachmentDisplay fileName={editForm.serviceRecordFile} fileSize={editForm.serviceRecordFileSize} placeholder="sr_admin.pdf" />
-              </EditField>
-              <EditField label="Registered Face">
                 <div className="space-y-2">
-                  {editForm.registeredFaceFile ? (
-                    <img
-                      src={editForm.registeredFaceFile}
-                      alt="Registered face"
-                      className="w-full h-40 object-cover rounded-xl border border-border/70"
-                    />
-                  ) : (
-                    <div className="w-full h-40 border border-dashed border-border/60 rounded-xl flex items-center justify-center text-sm text-muted-foreground">
-                      No face capture on file
+                  <AttachmentDisplay fileName={editForm.pdsFile} fileSize={editForm.pdsFileSize} placeholder="pds_admin.pdf" />
+                  {editForm.pdsFile && (
+                    <div className="flex gap-2">
+                      <Button 
+                        type="button" 
+                        variant="outline" 
+                        size="sm"
+                        onClick={() => {
+                          const fileUrl = `${API_BASE_URL}/uploads/${editForm.pdsFile}`;
+                          window.open(fileUrl, '_blank');
+                        }}
+                      >
+                        <Eye className="w-4 h-4 mr-2" />
+                        View
+                      </Button>
+                      <Button 
+                        type="button" 
+                        variant="outline" 
+                        size="sm"
+                        onClick={() => {
+                          const fileUrl = `${API_BASE_URL}/uploads/${editForm.pdsFile}`;
+                          window.open(fileUrl, '_blank');
+                        }}
+                      >
+                        <Edit className="w-4 h-4 mr-2" />
+                        Edit
+                      </Button>
+                      <Button 
+                        type="button" 
+                        variant="outline" 
+                        size="sm"
+                        onClick={() => {
+                          const fileUrl = `${API_BASE_URL}/uploads/${editForm.pdsFile}`;
+                          window.open(fileUrl, '_blank');
+                          setTimeout(() => window.print(), 500);
+                        }}
+                      >
+                        <Paperclip className="w-4 h-4 mr-2" />
+                        Print
+                      </Button>
                     </div>
                   )}
-                  <Button type="button" variant="outline" className="w-full" onClick={() => openFaceCamera('edit')}>
+                </div>
+              </EditField>
+              <EditField label="Service Record">
+                <div className="space-y-2">
+                  <AttachmentDisplay fileName={editForm.serviceRecordFile} fileSize={editForm.serviceRecordFileSize} placeholder="sr_admin.pdf" />
+                  {editForm.serviceRecordFile && (
+                    <div className="flex gap-2">
+                      <Button 
+                        type="button" 
+                        variant="outline" 
+                        size="sm"
+                        onClick={() => {
+                          const fileUrl = `${API_BASE_URL}/uploads/${editForm.serviceRecordFile}`;
+                          window.open(fileUrl, '_blank');
+                        }}
+                      >
+                        <Eye className="w-4 h-4 mr-2" />
+                        View
+                      </Button>
+                      <Button 
+                        type="button" 
+                        variant="outline" 
+                        size="sm"
+                        onClick={() => {
+                          const fileUrl = `${API_BASE_URL}/uploads/${editForm.serviceRecordFile}`;
+                          window.open(fileUrl, '_blank');
+                        }}
+                      >
+                        <Edit className="w-4 h-4 mr-2" />
+                        Edit
+                      </Button>
+                      <Button 
+                        type="button" 
+                        variant="outline" 
+                        size="sm"
+                        onClick={() => {
+                          const fileUrl = `${API_BASE_URL}/uploads/${editForm.serviceRecordFile}`;
+                          window.open(fileUrl, '_blank');
+                          setTimeout(() => window.print(), 500);
+                        }}
+                      >
+                        <Paperclip className="w-4 h-4 mr-2" />
+                        Print
+                      </Button>
+                    </div>
+                  )}
+                </div>
+              </EditField>
+              <EditField label="Registered Face" className="lg:col-span-2">
+                <div className="space-y-3">
+                  {editForm.registeredFaceFile ? (
+                    <div className="space-y-2">
+                      <img
+                        src={editForm.registeredFaceFile}
+                        alt="Registered face"
+                        className="w-full max-w-md h-48 object-cover rounded-xl border-2 border-primary/20 shadow-md"
+                      />
+                      <p className="text-xs text-green-600 font-medium">✓ Face registered</p>
+                    </div>
+                  ) : (
+                    <div className="w-full max-w-md h-48 border-2 border-dashed border-border/60 rounded-xl flex flex-col items-center justify-center text-sm text-muted-foreground bg-muted/30">
+                      <Camera className="w-8 h-8 mb-2 text-muted-foreground/50" />
+                      <p>No face capture on file</p>
+                    </div>
+                  )}
+                  <Button type="button" variant="outline" className="w-full max-w-md" onClick={() => openFaceCamera('edit')}>
                     <Camera className="w-4 h-4 mr-2" />
                     {editForm.registeredFaceFile ? 'Retake Photo' : 'Open Camera'}
                   </Button>
@@ -1436,32 +1638,67 @@ const Employees = () => {
                 </Select>
               </EditField>
               <EditField label="Password">
-                <div className="relative">
-                  <Input
-                    type={showEditPassword ? "text" : "password"}
-                    value={editForm.password}
-                    onChange={(e) => handleEditFieldChange('password', e.target.value)}
-                    placeholder="Enter new password (optional)"
-                    className="pr-10"
-                  />
-                  <button
-                    type="button"
-                    onClick={() => setShowEditPassword(!showEditPassword)}
-                    className="absolute right-3 top-1/2 -translate-y-1/2 text-muted-foreground hover:text-foreground"
-                    tabIndex={-1}
-                  >
-                    {showEditPassword ? <EyeOff className="h-4 w-4" /> : <Eye className="h-4 w-4" />}
-                  </button>
+                <div className="space-y-2">
+                  <div className="relative">
+                    <Input
+                      type={showEditPassword ? "text" : "password"}
+                      value={editForm.password === '••••••••' ? '' : editForm.password}
+                      onChange={(e) => {
+                        handleEditFieldChange('password', e.target.value);
+                      }}
+                      onFocus={() => {
+                        // Clear placeholder when focused
+                        if (editForm.password === '••••••••') {
+                          handleEditFieldChange('password', '');
+                        }
+                      }}
+                      placeholder={editForm.password === '••••••••' ? "Password is set (click to change)" : "Enter new password (optional)"}
+                      className="pr-10"
+                    />
+                    <button
+                      type="button"
+                      onClick={() => setShowEditPassword(!showEditPassword)}
+                      className="absolute right-3 top-1/2 -translate-y-1/2 text-muted-foreground hover:text-foreground"
+                      tabIndex={-1}
+                    >
+                      {showEditPassword ? <EyeOff className="h-4 w-4" /> : <Eye className="h-4 w-4" />}
+                    </button>
+                  </div>
+                  {editForm.password === '••••••••' && (
+                    <p className="text-xs text-green-600 font-medium">
+                      ✓ Password is set. Click the field above to change it.
+                    </p>
+                  )}
                 </div>
               </EditField>
               <EditField label="POS">
                 <Input value={editForm.posNumber} onChange={(e) => handleEditFieldChange('posNumber', e.target.value)} placeholder="Castro2k25" />
               </EditField>
-              <EditField label="Deactivation Date (optional)">
-                <Input type="date" value={editForm.deactivationDate} onChange={(e) => handleEditFieldChange('deactivationDate', e.target.value)} />
+              <EditField label="Deactivation Date">
+                <Input 
+                  type="date" 
+                  value={editForm.deactivationDate} 
+                  onChange={(e) => handleEditFieldChange('deactivationDate', e.target.value)}
+                  placeholder="Select deactivation date"
+                />
+                {editForm.deactivationDate && (
+                  <p className="text-xs text-muted-foreground mt-1">
+                    Deactivation: {new Date(editForm.deactivationDate).toLocaleDateString()}
+                  </p>
+                )}
               </EditField>
-              <EditField label="Reactivation Date (optional)">
-                <Input type="date" value={editForm.reactivationDate} onChange={(e) => handleEditFieldChange('reactivationDate', e.target.value)} />
+              <EditField label="Reactivation Date">
+                <Input 
+                  type="date" 
+                  value={editForm.reactivationDate} 
+                  onChange={(e) => handleEditFieldChange('reactivationDate', e.target.value)}
+                  placeholder="Select reactivation date"
+                />
+                {editForm.reactivationDate && (
+                  <p className="text-xs text-muted-foreground mt-1">
+                    Reactivation: {new Date(editForm.reactivationDate).toLocaleDateString()}
+                  </p>
+                )}
               </EditField>
             </section>
 
@@ -1560,32 +1797,34 @@ const Employees = () => {
       </Dialog>
 
       {isCameraOpen && (
-        <div className="fixed inset-0 z-50 bg-black/60 backdrop-blur-sm flex items-center justify-center p-4">
-          <div className="bg-card rounded-2xl w-full max-w-lg p-6 space-y-4 shadow-2xl border border-border/60">
-            <div className="flex items-center justify-between gap-3">
-              <div>
-                <p className="text-lg font-semibold">Capture Face</p>
-                <p className="text-sm text-muted-foreground">
-                  {cameraContext === 'add' ? 'Add Employee' : 'Edit Employee'} • Align the camera and tap capture.
-                </p>
+        <Dialog open={isCameraOpen} onOpenChange={(open) => !open && closeCamera}>
+          <DialogContent className="max-w-2xl w-full p-0 gap-0">
+            <div className="p-6 pb-4">
+              <div className="flex items-center justify-between gap-3 mb-4">
+                <div>
+                  <DialogTitle className="text-lg font-semibold">Capture Face</DialogTitle>
+                  <p className="text-sm text-muted-foreground mt-1">
+                    {cameraContext === 'add' ? 'Add Employee' : 'Edit Employee'} • Align the camera and tap capture.
+                  </p>
+                </div>
+                <Button variant="ghost" size="icon" onClick={closeCamera} className="h-8 w-8">
+                  <X className="w-5 h-5" />
+                </Button>
               </div>
-              <Button variant="ghost" size="icon" onClick={closeCamera}>
-                <X className="w-5 h-5" />
-              </Button>
-            </div>
 
-            <div className="rounded-xl overflow-hidden bg-black aspect-video">
-              <video ref={videoRef} autoPlay playsInline className="w-full h-full object-cover" />
-            </div>
+              <div className="rounded-xl overflow-hidden bg-black aspect-video mb-4">
+                <video ref={videoRef} autoPlay playsInline className="w-full h-full object-cover" />
+              </div>
 
-            {cameraError && <p className="text-sm text-destructive">{cameraError}</p>}
+              {cameraError && <p className="text-sm text-destructive mb-4">{cameraError}</p>}
 
-            <div className="flex justify-end gap-3">
-              <Button variant="outline" onClick={closeCamera}>Cancel</Button>
-              <Button onClick={handleCaptureFace}>Capture</Button>
+              <div className="flex justify-end gap-3">
+                <Button variant="outline" onClick={closeCamera}>Cancel</Button>
+                <Button onClick={handleCaptureFace}>Capture</Button>
+              </div>
             </div>
-          </div>
-        </div>
+          </DialogContent>
+        </Dialog>
       )}
     </DashboardLayoutNew>
   );

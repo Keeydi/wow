@@ -10,7 +10,9 @@ import { Avatar, AvatarFallback, AvatarImage } from '@/components/ui/avatar';
 import { Dialog, DialogContent, DialogDescription, DialogHeader, DialogTitle } from '@/components/ui/dialog';
 import { useAuth } from '@/contexts/AuthContext';
 import { useToast } from '@/hooks/use-toast';
-import { UserCircle, Mail, Phone, MapPin, Calendar, Briefcase, Upload, AlertCircle } from 'lucide-react';
+import { UserCircle, Mail, Phone, MapPin, Calendar, Briefcase, Upload, AlertCircle, FileText, Download, Eye } from 'lucide-react';
+
+const API_BASE_URL = import.meta.env.VITE_API_URL || 'http://localhost:4000';
 
 const Profile = () => {
   const { user } = useAuth();
@@ -20,12 +22,41 @@ const Profile = () => {
   
   const [fullName, setFullName] = useState(user?.fullName || '');
   const [email, setEmail] = useState(user?.email || '');
-  const [phone, setPhone] = useState('+1234567890');
-  const [address, setAddress] = useState('123 Main St, City, State 12345');
-  const [bio, setBio] = useState('System Administrator with 5+ years of experience in HR management systems.');
+  const [phone, setPhone] = useState('');
+  const [address, setAddress] = useState('');
+  const [bio, setBio] = useState('');
   const [currentPassword, setCurrentPassword] = useState('');
   const [newPassword, setNewPassword] = useState('');
   const [confirmPassword, setConfirmPassword] = useState('');
+  const [employeeData, setEmployeeData] = useState<any>(null);
+  const [showPDSDialog, setShowPDSDialog] = useState(false);
+  const [showSRDialog, setShowSRDialog] = useState(false);
+
+  // Fetch employee data
+  useEffect(() => {
+    const fetchEmployeeData = async () => {
+      if (!user?.employeeId) return;
+      
+      try {
+        const response = await fetch(`${API_BASE_URL}/employees?employeeId=${user.employeeId}`);
+        if (response.ok) {
+          const data = await response.json();
+          if (data.data && data.data.length > 0) {
+            const emp = data.data[0];
+            setEmployeeData(emp);
+            setPhone(emp.phone || '');
+            setAddress(emp.address || '');
+            setFullName(emp.fullName || user.fullName || '');
+            setEmail(emp.email || user.email || '');
+          }
+        }
+      } catch (error) {
+        console.error('Error fetching employee data', error);
+      }
+    };
+
+    fetchEmployeeData();
+  }, [user]);
 
   // Sync with user data from database
   useEffect(() => {
@@ -190,18 +221,24 @@ const Profile = () => {
         <Card className="p-6">
           <div className="flex items-start gap-6 mb-6">
             <Avatar className="w-24 h-24">
-              <AvatarImage src="" />
+              {employeeData?.registeredFaceFile ? (
+                <AvatarImage src={`${API_BASE_URL}/uploads/${employeeData.registeredFaceFile}`} />
+              ) : (
+                <AvatarImage src="" />
+              )}
               <AvatarFallback className="text-2xl bg-primary text-primary-foreground">
                 {user?.fullName?.charAt(0) || 'A'}
               </AvatarFallback>
             </Avatar>
             <div className="flex-1">
-              <h2 className="text-2xl font-bold mb-1">{user?.fullName}</h2>
-              <p className="text-muted-foreground capitalize mb-4">{user?.role}</p>
-              <Button variant="outline" className="gap-2">
-                <Upload className="h-4 w-4" />
-                Change Profile Picture
-              </Button>
+              <h2 className="text-2xl font-bold mb-1">{employeeData?.fullName || user?.fullName}</h2>
+              <p className="text-muted-foreground capitalize mb-1">{user?.role}</p>
+              {employeeData?.department && (
+                <p className="text-sm text-muted-foreground mb-1">Department: {employeeData.department}</p>
+              )}
+              {employeeData?.position && (
+                <p className="text-sm text-muted-foreground mb-4">Position: {employeeData.position}</p>
+              )}
             </div>
           </div>
 
@@ -345,6 +382,97 @@ const Profile = () => {
           </form>
         </Card>
 
+        {/* Documents Card */}
+        <Card className="p-6">
+          <h2 className="text-xl font-semibold mb-4">My Documents</h2>
+          
+          <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+            <div className="border rounded-lg p-4 space-y-3">
+              <div className="flex items-center justify-between">
+                <div className="flex items-center gap-2">
+                  <FileText className="h-5 w-5 text-primary" />
+                  <h3 className="font-medium">Personal Data Sheet (PDS)</h3>
+                </div>
+              </div>
+              {employeeData?.pdsFile ? (
+                <div className="flex gap-2">
+                  <Button
+                    variant="outline"
+                    size="sm"
+                    onClick={() => {
+                      const fileUrl = `${API_BASE_URL}/uploads/${employeeData.pdsFile}`;
+                      window.open(fileUrl, '_blank');
+                    }}
+                  >
+                    <Eye className="h-4 w-4 mr-2" />
+                    View
+                  </Button>
+                  <Button
+                    variant="outline"
+                    size="sm"
+                    onClick={() => {
+                      const fileUrl = `${API_BASE_URL}/uploads/${employeeData.pdsFile}`;
+                      const link = document.createElement('a');
+                      link.href = fileUrl;
+                      link.download = `PDS_${employeeData.employeeId || 'document'}.pdf`;
+                      document.body.appendChild(link);
+                      link.click();
+                      document.body.removeChild(link);
+                    }}
+                  >
+                    <Download className="h-4 w-4 mr-2" />
+                    Download
+                  </Button>
+                </div>
+              ) : (
+                <p className="text-sm text-muted-foreground">No PDS file uploaded</p>
+              )}
+            </div>
+
+            <div className="border rounded-lg p-4 space-y-3">
+              <div className="flex items-center justify-between">
+                <div className="flex items-center gap-2">
+                  <FileText className="h-5 w-5 text-primary" />
+                  <h3 className="font-medium">Service Record</h3>
+                </div>
+              </div>
+              {employeeData?.serviceRecordFile ? (
+                <div className="flex gap-2">
+                  <Button
+                    variant="outline"
+                    size="sm"
+                    onClick={() => {
+                      const fileUrl = `${API_BASE_URL}/uploads/${employeeData.serviceRecordFile}`;
+                      window.open(fileUrl, '_blank');
+                    }}
+                  >
+                    <Eye className="h-4 w-4 mr-2" />
+                    View
+                  </Button>
+                  <Button
+                    variant="outline"
+                    size="sm"
+                    onClick={() => {
+                      const fileUrl = `${API_BASE_URL}/uploads/${employeeData.serviceRecordFile}`;
+                      const link = document.createElement('a');
+                      link.href = fileUrl;
+                      link.download = `ServiceRecord_${employeeData.employeeId || 'document'}.pdf`;
+                      document.body.appendChild(link);
+                      link.click();
+                      document.body.removeChild(link);
+                    }}
+                  >
+                    <Download className="h-4 w-4 mr-2" />
+                    Download
+                  </Button>
+                </div>
+              ) : (
+                <p className="text-sm text-muted-foreground">No Service Record file uploaded</p>
+              )}
+            </div>
+          </div>
+        </Card>
+
         {/* Account Info */}
         <Card className="p-6">
           <h2 className="text-xl font-semibold mb-4">Account Information</h2>
@@ -353,7 +481,7 @@ const Profile = () => {
             <div className="flex items-center gap-2">
               <Calendar className="h-4 w-4 text-muted-foreground" />
               <span className="text-muted-foreground">Member since:</span>
-              <span className="font-medium">{new Date().toLocaleDateString()}</span>
+              <span className="font-medium">{employeeData?.createdAt ? new Date(employeeData.createdAt).toLocaleDateString() : new Date().toLocaleDateString()}</span>
             </div>
             <div className="flex items-center gap-2">
               <UserCircle className="h-4 w-4 text-muted-foreground" />
@@ -365,6 +493,20 @@ const Profile = () => {
                 <Briefcase className="h-4 w-4 text-muted-foreground" />
                 <span className="text-muted-foreground">Employee ID:</span>
                 <span className="font-medium">{user.employeeId}</span>
+              </div>
+            )}
+            {employeeData?.department && (
+              <div className="flex items-center gap-2">
+                <Briefcase className="h-4 w-4 text-muted-foreground" />
+                <span className="text-muted-foreground">Department:</span>
+                <span className="font-medium">{employeeData.department}</span>
+              </div>
+            )}
+            {employeeData?.position && (
+              <div className="flex items-center gap-2">
+                <Briefcase className="h-4 w-4 text-muted-foreground" />
+                <span className="text-muted-foreground">Designation:</span>
+                <span className="font-medium">{employeeData.position}</span>
               </div>
             )}
           </div>

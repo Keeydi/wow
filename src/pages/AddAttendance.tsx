@@ -7,6 +7,20 @@ import { Card } from '@/components/ui/card';
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select';
 import { useToast } from '@/hooks/use-toast';
 import { Camera, Clock, X } from 'lucide-react';
+import { Badge } from '@/components/ui/badge';
+
+// Calculate distance between two coordinates in kilometers (Haversine formula)
+const calculateDistance = (lat1: number, lon1: number, lat2: number, lon2: number): number => {
+  const R = 6371; // Earth's radius in kilometers
+  const dLat = (lat2 - lat1) * Math.PI / 180;
+  const dLon = (lon2 - lon1) * Math.PI / 180;
+  const a = 
+    Math.sin(dLat / 2) * Math.sin(dLat / 2) +
+    Math.cos(lat1 * Math.PI / 180) * Math.cos(lat2 * Math.PI / 180) *
+    Math.sin(dLon / 2) * Math.sin(dLon / 2);
+  const c = 2 * Math.atan2(Math.sqrt(a), Math.sqrt(1 - a));
+  return R * c;
+};
 
 const AddAttendance = () => {
   const [employeeName, setEmployeeName] = useState('');
@@ -21,6 +35,7 @@ const AddAttendance = () => {
   const [cameraError, setCameraError] = useState('');
   const [capturedImages, setCapturedImages] = useState<{ checkIn?: string; checkOut?: string }>({});
   const [isLoadingEmployee, setIsLoadingEmployee] = useState(false);
+  const [minutesLate, setMinutesLate] = useState(0);
   const { toast } = useToast();
   
   const API_BASE_URL = import.meta.env.VITE_API_URL || 'http://localhost:4000';
@@ -110,12 +125,75 @@ const AddAttendance = () => {
       return;
     }
 
-    // Auto-detect late status if check-in is after 8:00 AM
+    // Check current time - attendance only allowed until 7:00 PM
+    const now = new Date();
+    const currentHour = now.getHours();
+    const currentMinute = now.getMinutes();
+    const cutoffHour = 19; // 7:00 PM
+    const cutoffMinute = 0;
+    
+    if (currentHour > cutoffHour || (currentHour === cutoffHour && currentMinute > cutoffMinute)) {
+      toast({
+        variant: 'destructive',
+        title: 'Attendance Closed',
+        description: 'Attendance can only be recorded until 7:00 PM.',
+      });
+      return;
+    }
+
+    // Get user's location for face recognition verification
+    let location: { latitude: number; longitude: number } | null = null;
+    if (capturedImages.checkIn || capturedImages.checkOut) {
+      try {
+        const position = await new Promise<GeolocationPosition>((resolve, reject) => {
+          navigator.geolocation.getCurrentPosition(resolve, reject, {
+            enableHighAccuracy: true,
+            timeout: 10000,
+            maximumAge: 0,
+          });
+        });
+        location = {
+          latitude: position.coords.latitude,
+          longitude: position.coords.longitude,
+        };
+        
+        // Check if within institution (set your institution coordinates here)
+        // Default: Manila area (update with your actual institution coordinates)
+        const institutionLat = 14.5995; // Update with your institution's latitude
+        const institutionLng = 120.9842; // Update with your institution's longitude
+        const distance = calculateDistance(
+          location.latitude,
+          location.longitude,
+          institutionLat,
+          institutionLng
+        );
+        
+        // Allow if within 100 meters (0.1 km) of institution
+        if (distance > 0.1) {
+          toast({
+            variant: 'destructive',
+            title: 'Location Error',
+            description: `You must be within the institution premises to record attendance. You are ${(distance * 1000).toFixed(0)} meters away.`,
+          });
+          return;
+        }
+      } catch (error) {
+        toast({
+          variant: 'destructive',
+          title: 'Location Required',
+          description: 'Face recognition requires location verification. Please enable location services and try again.',
+        });
+        return;
+      }
+    }
+
+    // Auto-detect late status if check-in is after 8:11 AM
     let finalStatus = status;
+    let minutesLate = 0;
     if (checkIn && (status === 'present' || status === 'late')) {
       const checkInTime = new Date(`2000-01-01T${checkIn}`);
-      const expectedTime = new Date('2000-01-01T08:00');
-      const minutesLate = Math.floor((checkInTime.getTime() - expectedTime.getTime()) / 60000);
+      const expectedTime = new Date('2000-01-01T08:11'); // 8:11 AM threshold
+      minutesLate = Math.floor((checkInTime.getTime() - expectedTime.getTime()) / 60000);
       
       if (minutesLate > 0) {
         finalStatus = 'late';
@@ -138,6 +216,10 @@ const AddAttendance = () => {
           notes: notes || null,
           checkInImage: capturedImages.checkIn || null,
           checkOutImage: capturedImages.checkOut || null,
+          location: location ? {
+            latitude: location.latitude,
+            longitude: location.longitude,
+          } : null,
         }),
       });
 
@@ -146,7 +228,19 @@ const AddAttendance = () => {
         throw new Error(errorData.message || 'Failed to add attendance record');
       }
 
-      toast({ title: "Success", description: "Attendance record added successfully" });
+      // Show success message with late information if applicable
+      if (finalStatus === 'late' && minutesLate > 0) {
+        toast({ 
+          title: "Attendance Recorded", 
+          description: `Attendance added successfully. Employee is ${minutesLate} minute${minutesLate !== 1 ? 's' : ''} late.`,
+          duration: 5000,
+        });
+      } else {
+        toast({ 
+          title: "Success", 
+          description: "Attendance record added successfully" 
+        });
+      }
     } catch (error) {
       console.error('Error adding attendance', error);
       toast({
@@ -166,6 +260,7 @@ const AddAttendance = () => {
     setStatus('present');
     setNotes('');
     setCapturedImages({});
+    setMinutesLate(0);
   };
 
   const handleOpenCamera = async (captureType: 'checkIn' | 'checkOut') => {
@@ -174,6 +269,42 @@ const AddAttendance = () => {
         variant: 'destructive',
         title: 'Camera not supported',
         description: 'Your browser does not support camera access.',
+      });
+      return;
+    }
+
+    // Check location before opening camera
+    try {
+      const position = await new Promise<GeolocationPosition>((resolve, reject) => {
+        navigator.geolocation.getCurrentPosition(resolve, reject, {
+          enableHighAccuracy: true,
+          timeout: 10000,
+          maximumAge: 0,
+        });
+      });
+      
+      const userLat = position.coords.latitude;
+      const userLng = position.coords.longitude;
+      
+      // Check if within institution (set your institution coordinates here)
+      const institutionLat = 14.5995; // Update with your institution's latitude
+      const institutionLng = 120.9842; // Update with your institution's longitude
+      const distance = calculateDistance(userLat, userLng, institutionLat, institutionLng);
+      
+      // Allow if within 100 meters (0.1 km) of institution
+      if (distance > 0.1) {
+        toast({
+          variant: 'destructive',
+          title: 'Location Error',
+          description: `You must be within the institution premises to use face recognition. You are ${(distance * 1000).toFixed(0)} meters away.`,
+        });
+        return;
+      }
+    } catch (error) {
+      toast({
+        variant: 'destructive',
+        title: 'Location Required',
+        description: 'Face recognition requires location verification. Please enable location services.',
       });
       return;
     }
@@ -224,10 +355,24 @@ const AddAttendance = () => {
     setActiveCapture(null);
   };
 
+  // Check if attendance is still allowed (before 7:00 PM)
+  const now = new Date();
+  const currentHour = now.getHours();
+  const currentMinute = now.getMinutes();
+  const cutoffHour = 19; // 7:00 PM
+  const isAttendanceClosed = currentHour > cutoffHour || (currentHour === cutoffHour && currentMinute > cutoffMinute);
+
   return (
     <DashboardLayoutNew>
       <Card className="p-6 shadow-lg border-border/70">
-        <h2 className="text-2xl font-semibold mb-6">Add Attendance</h2>
+        <div className="flex items-center justify-between mb-6">
+          <h2 className="text-2xl font-semibold">Add Attendance</h2>
+          {isAttendanceClosed && (
+            <Badge variant="destructive" className="px-3 py-1">
+              Attendance Closed (After 7:00 PM)
+            </Badge>
+          )}
+        </div>
 
         <form onSubmit={handleSubmit} className="space-y-6">
           <div className="grid gap-4 md:grid-cols-2">
@@ -262,15 +407,45 @@ const AddAttendance = () => {
           </div>
 
           <div className="grid gap-4 md:grid-cols-2">
-            <CaptureCard
-              title="Sign In Time"
-              value={checkIn}
-              onChange={setCheckIn}
-              placeholder="Now"
-              disabled={status === 'leave' || status === 'absent'}
-              onOpenCamera={() => handleOpenCamera('checkIn')}
-              capturedImage={capturedImages.checkIn}
-            />
+            <div className="space-y-2">
+              <CaptureCard
+                title="Sign In Time"
+                value={checkIn}
+                onChange={(val) => {
+                  setCheckIn(val);
+                  // Calculate minutes late when check-in time changes
+                  if (val) {
+                    const checkInTime = new Date(`2000-01-01T${val}`);
+                    const expectedTime = new Date('2000-01-01T08:11'); // 8:11 AM threshold
+                    const late = Math.floor((checkInTime.getTime() - expectedTime.getTime()) / 60000);
+                    setMinutesLate(late > 0 ? late : 0);
+                  } else {
+                    setMinutesLate(0);
+                  }
+                }}
+                placeholder="Now"
+                disabled={status === 'leave' || status === 'absent'}
+                onOpenCamera={() => handleOpenCamera('checkIn')}
+                capturedImage={capturedImages.checkIn}
+              />
+              {checkIn && minutesLate > 0 && (
+                <div className="rounded-lg border-2 border-orange-500 bg-orange-50 p-3">
+                  <p className="text-sm font-semibold text-orange-700">
+                    ⚠️ Employee is {minutesLate} minute{minutesLate !== 1 ? 's' : ''} late
+                  </p>
+                  <p className="text-xs text-orange-600 mt-1">
+                    Check-in time: {checkIn} (Expected: 08:11)
+                  </p>
+                </div>
+              )}
+              {checkIn && minutesLate <= 0 && (
+                <div className="rounded-lg border-2 border-green-500 bg-green-50 p-3">
+                  <p className="text-sm font-semibold text-green-700">
+                    ✓ On time
+                  </p>
+                </div>
+              )}
+            </div>
             <CaptureCard
               title="Sign Out Time"
               value={checkOut}

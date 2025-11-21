@@ -430,6 +430,8 @@ const InactiveEmployees = () => {
                         placeholder="Employee's First Name"
                         value={addForm.firstName}
                         onChange={(e) => setAddForm((prev) => ({ ...prev, firstName: e.target.value }))}
+                        onFocus={(e) => e.target.select()}
+                        autoComplete="off"
                       />
                     </Field>
                     <Field label="Last Name" error={addErrors.lastName}>
@@ -437,6 +439,15 @@ const InactiveEmployees = () => {
                         placeholder="Employee's Last Name"
                         value={addForm.lastName}
                         onChange={(e) => setAddForm((prev) => ({ ...prev, lastName: e.target.value }))}
+                        onFocus={(e) => {
+                          // Only select if field is empty, otherwise place cursor at end
+                          if (!e.target.value) {
+                            e.target.select();
+                          } else {
+                            e.target.setSelectionRange(e.target.value.length, e.target.value.length);
+                          }
+                        }}
+                        autoComplete="off"
                       />
                     </Field>
                     <Field label="Employee ID" error={addErrors.employeeId}>
@@ -444,6 +455,14 @@ const InactiveEmployees = () => {
                         placeholder="Example: 25-GPC-0357"
                         value={addForm.employeeId}
                         onChange={(e) => setAddForm((prev) => ({ ...prev, employeeId: e.target.value }))}
+                        onFocus={(e) => {
+                          if (!e.target.value) {
+                            e.target.select();
+                          } else {
+                            e.target.setSelectionRange(e.target.value.length, e.target.value.length);
+                          }
+                        }}
+                        autoComplete="off"
                       />
                     </Field>
                     <Field label="Upload Image">
@@ -555,6 +574,11 @@ const InactiveEmployees = () => {
                         type="date"
                         value={addForm.deactivationDate}
                         onChange={(e) => setAddForm((prev) => ({ ...prev, deactivationDate: e.target.value }))}
+                        onFocus={(e) => {
+                          if (e.target.value) {
+                            e.target.setSelectionRange(e.target.value.length, e.target.value.length);
+                          }
+                        }}
                       />
                     </Field>
                     <Field label="Reactivation Date">
@@ -562,6 +586,11 @@ const InactiveEmployees = () => {
                         type="date"
                         value={addForm.reactivationDate}
                         onChange={(e) => setAddForm((prev) => ({ ...prev, reactivationDate: e.target.value }))}
+                        onFocus={(e) => {
+                          if (e.target.value) {
+                            e.target.setSelectionRange(e.target.value.length, e.target.value.length);
+                          }
+                        }}
                       />
                     </Field>
                     <Field label="Employment Record">

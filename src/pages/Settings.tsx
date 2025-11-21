@@ -1,10 +1,12 @@
-import { useState } from 'react';
+import { useState, useEffect } from 'react';
 import DashboardLayoutNew from '@/components/Layout/DashboardLayoutNew';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
 import { Label } from '@/components/ui/label';
 import { Card } from '@/components/ui/card';
 import { useToast } from '@/hooks/use-toast';
+
+const API_BASE_URL = import.meta.env.VITE_API_URL || 'http://localhost:4000';
 
 const Settings = () => {
   const [siteTitle, setSiteTitle] = useState('Human Resource Management System');
@@ -16,13 +18,86 @@ const Settings = () => {
   const [systemEmail, setSystemEmail] = useState('system@gmail.com');
   const [address, setAddress] = useState('Alaminos City, Pangasinan');
   const [logoPreview, setLogoPreview] = useState<string | null>(null);
+  const [logoFile, setLogoFile] = useState<File | null>(null);
+  const [isLoading, setIsLoading] = useState(true);
+  const [isSaving, setIsSaving] = useState(false);
   const { toast } = useToast();
 
-  const handleSave = () => {
-    toast({
-      title: 'Success',
-      description: 'Settings saved successfully',
-    });
+  useEffect(() => {
+    const fetchSettings = async () => {
+      try {
+        setIsLoading(true);
+        const response = await fetch(`${API_BASE_URL}/settings`);
+        if (response.ok) {
+          const data = await response.json();
+          const settings = data.data || {};
+          if (settings.siteTitle) setSiteTitle(settings.siteTitle);
+          if (settings.description) setDescription(settings.description);
+          if (settings.copyright !== undefined) setCopyright(settings.copyright || '');
+          if (settings.contactNumber) setContactNumber(settings.contactNumber);
+          if (settings.systemEmail) setSystemEmail(settings.systemEmail);
+          if (settings.address) setAddress(settings.address);
+          if (settings.logoUrl) setLogoPreview(`${API_BASE_URL}${settings.logoUrl}`);
+        }
+      } catch (error) {
+        console.error('Error fetching settings', error);
+      } finally {
+        setIsLoading(false);
+      }
+    };
+
+    fetchSettings();
+  }, []);
+
+  const handleSave = async () => {
+    try {
+      setIsSaving(true);
+      const formData = new FormData();
+      
+      if (logoFile) {
+        formData.append('logo', logoFile);
+      }
+      
+      formData.append('siteTitle', siteTitle);
+      formData.append('description', description);
+      formData.append('copyright', copyright);
+      formData.append('contactNumber', contactNumber);
+      formData.append('systemEmail', systemEmail);
+      formData.append('address', address);
+
+      const response = await fetch(`${API_BASE_URL}/settings`, {
+        method: 'PUT',
+        body: formData,
+      });
+
+      if (!response.ok) {
+        throw new Error('Failed to save settings');
+      }
+
+      toast({
+        title: 'Success',
+        description: 'Settings saved successfully',
+      });
+
+      // Refresh settings to get updated logo URL
+      const refreshResponse = await fetch(`${API_BASE_URL}/settings`);
+      if (refreshResponse.ok) {
+        const data = await refreshResponse.json();
+        const settings = data.data || {};
+        if (settings.logoUrl) {
+          setLogoPreview(`${API_BASE_URL}${settings.logoUrl}`);
+        }
+      }
+    } catch (error) {
+      console.error('Error saving settings', error);
+      toast({
+        variant: 'destructive',
+        title: 'Error',
+        description: 'Failed to save settings. Please try again.',
+      });
+    } finally {
+      setIsSaving(false);
+    }
   };
 
   return (
@@ -44,6 +119,7 @@ const Settings = () => {
               onChange={(e) => {
                 const file = e.target.files?.[0];
                 if (file) {
+                  setLogoFile(file);
                   const reader = new FileReader();
                   reader.onload = () => setLogoPreview(reader.result as string);
                   reader.readAsDataURL(file);
@@ -83,8 +159,12 @@ const Settings = () => {
           <Button variant="destructive" className="px-6 rounded-full">
             Cancel
           </Button>
-          <Button onClick={handleSave} className="px-6 rounded-full bg-green-600 hover:bg-green-700">
-            Save
+          <Button 
+            onClick={handleSave} 
+            className="px-6 rounded-full bg-green-600 hover:bg-green-700"
+            disabled={isSaving || isLoading}
+          >
+            {isSaving ? 'Saving...' : 'Save'}
           </Button>
         </div>
       </Card>

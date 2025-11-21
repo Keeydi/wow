@@ -1,4 +1,4 @@
-import { useMemo, useState } from 'react';
+import { useMemo, useState, useEffect } from 'react';
 import DashboardLayoutNew from '@/components/Layout/DashboardLayoutNew';
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
 import { Input } from '@/components/ui/input';
@@ -6,8 +6,6 @@ import { Label } from '@/components/ui/label';
 import { Button } from '@/components/ui/button';
 import { Badge } from '@/components/ui/badge';
 import { Search, Download, FileText } from 'lucide-react';
-import { attendanceStorage } from '@/lib/attendanceStorage';
-import { employeeStorage } from '@/lib/employeeStorage';
 import { useToast } from '@/hooks/use-toast';
 import {
   Dialog,
@@ -34,23 +32,95 @@ interface ReportSection {
   rows: ReportRow[];
 }
 
+interface Attendance {
+  id: string;
+  employeeId: string;
+  employeeName: string;
+  date: string;
+  checkIn?: string;
+  checkOut?: string;
+  status: 'present' | 'absent' | 'late' | 'half-day' | 'leave';
+  notes?: string;
+  checkInImage?: string;
+  checkOutImage?: string;
+  createdAt: string;
+  updatedAt: string;
+}
+
+interface Employee {
+  id: string;
+  employeeId: string;
+  fullName: string;
+  department: string;
+  position: string;
+  employmentType?: string;
+}
+
 const AttendanceReport = () => {
-  const [startDate, setStartDate] = useState('');
+  // Set default date to today for easy daily report generation
+  const today = new Date().toISOString().split('T')[0];
+  const [startDate, setStartDate] = useState(today);
   const [endDate, setEndDate] = useState('');
   const [searchTerm, setSearchTerm] = useState('');
   const [showCOEDialog, setShowCOEDialog] = useState(false);
   const [selectedEmployeeForCOE, setSelectedEmployeeForCOE] = useState<{ employeeId: string; name: string } | null>(null);
   const [isGeneratingCOE, setIsGeneratingCOE] = useState(false);
+  const [attendance, setAttendance] = useState<Attendance[]>([]);
+  const [employees, setEmployees] = useState<Employee[]>([]);
+  const [isLoading, setIsLoading] = useState(true);
   const { toast } = useToast();
   
   const API_BASE_URL = import.meta.env.VITE_API_URL || 'http://localhost:4000';
 
-  const reportData = useMemo(() => {
-    const allAttendance = startDate && endDate
-      ? attendanceStorage.getByDateRange(startDate, endDate)
-      : attendanceStorage.getAll();
+  // Fetch attendance and employees from API
+  useEffect(() => {
+    const fetchData = async () => {
+      try {
+        setIsLoading(true);
+        const [attendanceRes, employeesRes] = await Promise.all([
+          fetch(`${API_BASE_URL}/attendance`),
+          fetch(`${API_BASE_URL}/employees?status=active`),
+        ]);
 
-    const employees = employeeStorage.getAll();
+        if (attendanceRes.ok) {
+          const attendanceData = await attendanceRes.json();
+          setAttendance(attendanceData.data || []);
+        }
+
+        if (employeesRes.ok) {
+          const employeesData = await employeesRes.json();
+          setEmployees(employeesData.data || []);
+        }
+      } catch (error) {
+        console.error('Error fetching data', error);
+        toast({
+          variant: 'destructive',
+          title: 'Error',
+          description: 'Unable to load attendance data. Please try again.',
+        });
+      } finally {
+        setIsLoading(false);
+      }
+    };
+
+    fetchData();
+  }, [toast, API_BASE_URL]);
+
+  const reportData = useMemo(() => {
+    // Filter attendance by date range if provided, otherwise show all
+    let allAttendance = attendance;
+    if (startDate && endDate) {
+      allAttendance = attendance.filter(att => {
+        const attDate = new Date(att.date);
+        const start = new Date(startDate);
+        const end = new Date(endDate);
+        return attDate >= start && attDate <= end;
+      });
+    } else if (startDate) {
+      // If only start date is provided, show that single day
+      allAttendance = attendance.filter(att => att.date === startDate);
+    }
+
     const employeeMap = new Map(employees.map(emp => [emp.employeeId, emp]));
 
     // Group attendance by department and date
@@ -89,13 +159,29 @@ const AttendanceReport = () => {
         return `${displayHour}:${minutes} ${ampm}`;
       };
 
-      const statusText = att.status === 'late' && att.checkIn
-        ? `Late (${Math.max(0, Math.floor((new Date(`2000-01-01T${att.checkIn}`).getTime() - new Date('2000-01-01T08:00').getTime()) / 60000))} mins)`
-        : statusMap[att.status] || att.status;
+      // Calculate minutes late if check-in is after 8:11 AM
+      let statusText = statusMap[att.status] || att.status;
+      if (att.checkIn && (att.status === 'late' || att.status === 'present')) {
+        const checkInTime = new Date(`2000-01-01T${att.checkIn}`);
+        const expectedTime = new Date('2000-01-01T08:11'); // 8:11 AM threshold
+        const minutesLate = Math.floor((checkInTime.getTime() - expectedTime.getTime()) / 60000);
+        
+        if (minutesLate > 0) {
+          statusText = `Late (${minutesLate} mins)`;
+        } else if (att.status === 'late') {
+          statusText = 'Late';
+        }
+      }
+
+      // Use employmentType instead of position
+      const employmentType = employee.employmentType || 'Regular';
+      // Ensure it's one of the valid types
+      const validTypes = ['Regular', 'Contractual', 'Probationary', 'Project-Based'];
+      const employeeType = validTypes.includes(employmentType) ? employmentType : 'Regular';
 
       deptMap.get(date)!.push({
         name: employee.fullName,
-        type: employee.position || 'Regular',
+        type: employeeType,
         date: new Date(date).toLocaleDateString('en-US', { month: '2-digit', day: '2-digit', year: 'numeric' }).replace(/\//g, '-'),
         signIn: formatTime(att.checkIn),
         signOut: formatTime(att.checkOut || ''),
@@ -125,23 +211,27 @@ const AttendanceReport = () => {
     })).filter(section => section.rows.length > 0);
 
     return filtered;
-  }, [searchTerm, startDate, endDate]);
+  }, [searchTerm, startDate, endDate, attendance, employees]);
 
   const handleGenerate = () => {
-    if (!startDate || !endDate) {
+    if (!startDate) {
       toast({
         variant: "destructive",
-        title: "Date Range Required",
-        description: "Please select both start and end dates to generate a report.",
+        title: "Date Required",
+        description: "Please select at least a start date to generate a report.",
       });
       return;
     }
+
+    // If only start date is provided, use it as both start and end (single day report)
+    const reportStartDate = startDate;
+    const reportEndDate = endDate || startDate;
 
     if (reportData.length === 0) {
       toast({
         variant: "destructive",
         title: "No Data",
-        description: "No attendance records found for the selected date range.",
+        description: "No attendance records found for the selected date(s).",
       });
       return;
     }
@@ -163,7 +253,10 @@ const AttendanceReport = () => {
     const link = document.createElement('a');
     const url = URL.createObjectURL(blob);
     link.setAttribute('href', url);
-    link.setAttribute('download', `attendance_report_${startDate}_to_${endDate}.csv`);
+    const fileName = endDate && endDate !== startDate
+      ? `attendance_report_${reportStartDate}_to_${reportEndDate}.csv`
+      : `attendance_report_${reportStartDate}.csv`;
+    link.setAttribute('download', fileName);
     link.style.visibility = 'hidden';
     document.body.appendChild(link);
     link.click();
@@ -171,7 +264,9 @@ const AttendanceReport = () => {
 
     toast({
       title: "Report Generated",
-      description: `Attendance report exported successfully for ${startDate} to ${endDate}.`,
+      description: endDate && endDate !== startDate
+        ? `Attendance report exported successfully for ${reportStartDate} to ${reportEndDate}.`
+        : `Attendance report exported successfully for ${reportStartDate}.`,
     });
   };
 
@@ -369,16 +464,31 @@ const AttendanceReport = () => {
               <p className="text-sm text-muted-foreground">Generate custom date-range summaries</p>
             </div>
             <div className="flex flex-col sm:flex-row gap-3 w-full sm:w-auto">
-              <Field label="Start Date">
-                <Input type="date" value={startDate} onChange={(e) => setStartDate(e.target.value)} />
+              <Field label="Date">
+                <Input 
+                  type="date" 
+                  value={startDate} 
+                  onChange={(e) => {
+                    setStartDate(e.target.value);
+                    // If end date is not set, allow single day report
+                  }}
+                  max={new Date().toISOString().split('T')[0]}
+                />
               </Field>
-              <Field label="End Date">
-                <Input type="date" value={endDate} onChange={(e) => setEndDate(e.target.value)} />
+              <Field label="End Date (Optional)">
+                <Input 
+                  type="date" 
+                  value={endDate} 
+                  onChange={(e) => setEndDate(e.target.value)}
+                  min={startDate || undefined}
+                  max={new Date().toISOString().split('T')[0]}
+                  placeholder="Leave empty for single day report"
+                />
               </Field>
               <div className="flex items-end">
-                <Button onClick={handleGenerate} className="w-full">
+                <Button onClick={handleGenerate} className="w-full" disabled={isLoading}>
                   <Download className="w-4 h-4 mr-2" />
-                  Generate Report
+                  {isLoading ? 'Loading...' : 'Generate Report'}
                 </Button>
               </div>
             </div>

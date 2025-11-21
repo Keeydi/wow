@@ -5,8 +5,10 @@ import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
 import { Search, Folder, Edit, FileText, Download } from 'lucide-react';
 import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogDescription } from '@/components/ui/dialog';
 import { Button } from '@/components/ui/button';
+import { Label } from '@/components/ui/label';
 import { useToast } from '@/hooks/use-toast';
 import { useAuth } from '@/contexts/AuthContext';
+import { useNavigate } from 'react-router-dom';
 
 const API_BASE_URL = import.meta.env.VITE_API_URL || 'http://localhost:4000';
 
@@ -73,47 +75,13 @@ const modalConfigs: Record<
   },
 };
 
-const folderCards = [
-  { title: 'Personal Data Sheet', count: '400 files' },
-  { title: 'Service Records', count: '400 files' },
-  { title: 'Certificate of Employment', count: '400 files' },
-  { title: 'Contract of Employment', count: '400 files' },
+const folderTypes = [
+  { title: 'Personal Data Sheet', documentType: 'pds' },
+  { title: 'Service Records', documentType: 'sr' },
+  { title: 'Certificate of Employment', documentType: 'coe' },
+  { title: 'Contract of Employment', documentType: 'contract' },
 ];
 
-const documentRows = [
-  {
-    name: 'Tresenio, Mia R.',
-    id: '25-GPC-04837',
-    pds: 'pds_tresenio.pdf',
-    sr: 'sr_tresenio.pdf',
-    coe: 'coe_tresenio.pdf',
-    date: '02-25-2025',
-  },
-  {
-    name: 'Ochave, Steph P.',
-    id: '25-GPC-0837',
-    pds: 'pds_ochave.pdf',
-    sr: 'sr_ochave.pdf',
-    coe: 'coe_ochave.pdf',
-    date: '02-25-2025',
-  },
-  {
-    name: 'Corpuz, Miah N.',
-    id: '25-GPC-1267',
-    pds: 'pds_corpuz.pdf',
-    sr: 'sr_corpuz.pdf',
-    coe: 'coe_corpuz.pdf',
-    date: '02-25-2025',
-  },
-  {
-    name: 'Rabina, Polinne H.',
-    id: '25-GPC-3827',
-    pds: 'pds_rabina.pdf',
-    sr: 'sr_rabina.pdf',
-    coe: 'coe_rabina.pdf',
-    date: '02-25-2025',
-  },
-];
 
 interface Document {
   id: string;
@@ -132,53 +100,165 @@ const Documents = () => {
   const [activeModal, setActiveModal] = useState<NavCardKey | null>(null);
   const [modalForm, setModalForm] = useState<Record<string, string>>({});
   const [documents, setDocuments] = useState<Document[]>([]);
+  const [employees, setEmployees] = useState<any[]>([]);
+  const [folderCounts, setFolderCounts] = useState<Record<string, number>>({
+    'Personal Data Sheet': 0,
+    'Service Records': 0,
+    'Certificate of Employment': 0,
+    'Contract of Employment': 0,
+  });
   const [isLoading, setIsLoading] = useState(true);
   const { toast } = useToast();
   const { user } = useAuth();
+  const navigate = useNavigate();
   const [showEditDocDialog, setShowEditDocDialog] = useState(false);
   const [editingDoc, setEditingDoc] = useState<{ employeeId: string; type: 'pds' | 'sr' | 'coe' | 'contract'; currentUrl: string | null } | null>(null);
   const [editDocFile, setEditDocFile] = useState<File | null>(null);
+  const [folderDocuments, setFolderDocuments] = useState<any[]>([]);
+  const [folderSearchTerm, setFolderSearchTerm] = useState('');
 
-  // Fetch documents from API
+  // Helper function to fetch and process documents
+  const fetchAndProcessDocuments = async () => {
+    try {
+      const [documentsRes, employeesRes, allDocsRes] = await Promise.all([
+        fetch(`${API_BASE_URL}/documents?type=employee-doc`),
+        fetch(`${API_BASE_URL}/employees?status=active`),
+        fetch(`${API_BASE_URL}/documents?type=employee-doc`),
+      ]);
+
+      if (!documentsRes.ok) {
+        throw new Error('Failed to fetch documents');
+      }
+
+      const documentsData = await documentsRes.json();
+      const allDocsData = await allDocsRes.json();
+      let employeesData: any[] = [];
+
+      if (employeesRes.ok) {
+        const empData = await employeesRes.json();
+        employeesData = empData.data || [];
+        setEmployees(employeesData);
+      }
+
+      // Count files by document type
+      const counts: Record<string, number> = {
+        'Personal Data Sheet': 0,
+        'Service Records': 0,
+        'Certificate of Employment': 0,
+        'Contract of Employment': 0,
+      };
+
+      // Track which employee files we've already counted from employees table
+      const countedEmployeeFiles = new Set<string>();
+
+      // Count from employees table first (pds_file, service_record_file)
+      employeesData.forEach((emp: any) => {
+        if (emp.pdsFile) {
+          counts['Personal Data Sheet']++;
+          countedEmployeeFiles.add(`${emp.employeeId}_pds`);
+        }
+        if (emp.serviceRecordFile) {
+          counts['Service Records']++;
+          countedEmployeeFiles.add(`${emp.employeeId}_sr`);
+        }
+      });
+
+      // Count from documents table (avoid double-counting if same file exists in both)
+      allDocsData.data.forEach((doc: any) => {
+        if (!doc.employeeId) return; // Skip documents without employee ID
+        
+        const docType = doc.documentType?.toLowerCase() || '';
+        const name = doc.name.toLowerCase();
+        const fileKey = `${doc.employeeId}_${docType}`;
+        
+        // Only count if not already counted from employees table
+        if (docType === 'pds' || name.includes('pds') || name.includes('personal data')) {
+          if (!countedEmployeeFiles.has(`${doc.employeeId}_pds`)) {
+            counts['Personal Data Sheet']++;
+          }
+        } else if (docType === 'sr' || name.includes('service')) {
+          if (!countedEmployeeFiles.has(`${doc.employeeId}_sr`)) {
+            counts['Service Records']++;
+          }
+        } else if (docType === 'coe' || name.includes('certificate') || name.includes('coe')) {
+          counts['Certificate of Employment']++;
+        } else if (docType === 'contract' || name.includes('contract')) {
+          counts['Contract of Employment']++;
+        }
+      });
+
+      setFolderCounts(counts);
+      
+      // Create employee map for names and files
+      const employeeMap = new Map(employeesData.map((emp: any) => [emp.employeeId, emp]));
+      
+      // Group documents by employee
+      const employeeDocs = new Map<string, Document>();
+      
+      // First, add documents from employees table (pds_file, service_record_file)
+      employeesData.forEach((emp: any) => {
+        if (emp.employeeId && !employeeDocs.has(emp.employeeId)) {
+          employeeDocs.set(emp.employeeId, {
+            id: emp.employeeId,
+            name: emp.fullName || '',
+            employeeId: emp.employeeId,
+            pds: emp.pdsFile ? `/uploads/${emp.pdsFile}` : null,
+            sr: emp.serviceRecordFile ? `/uploads/${emp.serviceRecordFile}` : null,
+            coe: null,
+            date: emp.createdAt || new Date().toISOString(),
+          });
+        } else if (emp.employeeId) {
+          const empDoc = employeeDocs.get(emp.employeeId)!;
+          if (emp.pdsFile && !empDoc.pds) {
+            empDoc.pds = `/uploads/${emp.pdsFile}`;
+          }
+          if (emp.serviceRecordFile && !empDoc.sr) {
+            empDoc.sr = `/uploads/${emp.serviceRecordFile}`;
+          }
+        }
+      });
+      
+      // Then, add/update with documents from documents table
+      documentsData.data.forEach((doc: any) => {
+        if (doc.employeeId) {
+          if (!employeeDocs.has(doc.employeeId)) {
+            const employee = employeeMap.get(doc.employeeId);
+            employeeDocs.set(doc.employeeId, {
+              id: doc.employeeId,
+              name: employee?.fullName || '',
+              employeeId: doc.employeeId,
+              pds: null,
+              sr: null,
+              coe: null,
+              date: doc.createdAt || doc.uploadedAt,
+            });
+          }
+          
+          const empDoc = employeeDocs.get(doc.employeeId)!;
+          const docType = doc.documentType?.toLowerCase() || '';
+          if (docType === 'pds' || doc.name.toLowerCase().includes('pds') || doc.name.toLowerCase().includes('personal data')) {
+            empDoc.pds = doc.fileUrl;
+          } else if (docType === 'sr' || doc.name.toLowerCase().includes('service')) {
+            empDoc.sr = doc.fileUrl;
+          } else if (docType === 'coe' || doc.name.toLowerCase().includes('certificate')) {
+            empDoc.coe = doc.fileUrl;
+          }
+        }
+      });
+      
+      setDocuments(Array.from(employeeDocs.values()));
+    } catch (error) {
+      console.error('Error fetching documents', error);
+      throw error;
+    }
+  };
+
+  // Fetch documents and employees from API
   useEffect(() => {
     const fetchDocuments = async () => {
       try {
         setIsLoading(true);
-        const response = await fetch(`${API_BASE_URL}/documents?type=employee-doc`);
-        if (!response.ok) {
-          throw new Error('Failed to fetch documents');
-        }
-        const data = await response.json();
-        
-        // Group documents by employee
-        const employeeDocs = new Map<string, Document>();
-        
-        data.data.forEach((doc: any) => {
-          if (doc.employeeId) {
-            if (!employeeDocs.has(doc.employeeId)) {
-              employeeDocs.set(doc.employeeId, {
-                id: doc.employeeId,
-                name: '', // Will be fetched from employees
-                employeeId: doc.employeeId,
-                pds: null,
-                sr: null,
-                coe: null,
-                date: doc.createdAt,
-              });
-            }
-            
-            const empDoc = employeeDocs.get(doc.employeeId)!;
-            if (doc.documentType === 'pds' || doc.name.toLowerCase().includes('pds')) {
-              empDoc.pds = doc.fileUrl;
-            } else if (doc.documentType === 'sr' || doc.name.toLowerCase().includes('service')) {
-              empDoc.sr = doc.fileUrl;
-            } else if (doc.documentType === 'coe' || doc.name.toLowerCase().includes('certificate')) {
-              empDoc.coe = doc.fileUrl;
-            }
-          }
-        });
-        
-        setDocuments(Array.from(employeeDocs.values()));
+        await fetchAndProcessDocuments();
       } catch (error) {
         console.error('Error fetching documents', error);
         toast({
@@ -195,6 +275,18 @@ const Documents = () => {
   }, [toast]);
 
   const openModal = (key: NavCardKey) => {
+    // For reports, navigate to the actual report pages
+    if (key === 'employeeReports') {
+      // Navigate to employee reports page
+      navigate('/documents/employee');
+      return;
+    }
+    if (key === 'attendanceReports') {
+      // Navigate to attendance report page
+      navigate('/attendance/report');
+      return;
+    }
+    
     setActiveModal(key);
     setModalForm({});
   };
@@ -244,36 +336,7 @@ const Documents = () => {
 
         // Refresh documents list
         if (activeModal === 'documents') {
-          const refreshResponse = await fetch(`${API_BASE_URL}/documents?type=employee-doc`);
-          if (refreshResponse.ok) {
-            const refreshData = await refreshResponse.json();
-            // Group documents by employee (same logic as in useEffect)
-            const employeeDocs = new Map<string, Document>();
-            refreshData.data.forEach((doc: any) => {
-              if (doc.employeeId) {
-                if (!employeeDocs.has(doc.employeeId)) {
-                  employeeDocs.set(doc.employeeId, {
-                    id: doc.employeeId,
-                    name: '',
-                    employeeId: doc.employeeId,
-                    pds: null,
-                    sr: null,
-                    coe: null,
-                    date: doc.createdAt,
-                  });
-                }
-                const empDoc = employeeDocs.get(doc.employeeId)!;
-                if (doc.documentType === 'pds' || doc.name.toLowerCase().includes('pds')) {
-                  empDoc.pds = doc.fileUrl;
-                } else if (doc.documentType === 'sr' || doc.name.toLowerCase().includes('service')) {
-                  empDoc.sr = doc.fileUrl;
-                } else if (doc.documentType === 'coe' || doc.name.toLowerCase().includes('certificate')) {
-                  empDoc.coe = doc.fileUrl;
-                }
-              }
-            });
-            setDocuments(Array.from(employeeDocs.values()));
-          }
+          await fetchAndProcessDocuments();
         }
       } else {
         // For reports, just show success message
@@ -328,12 +391,55 @@ const Documents = () => {
             <CardTitle className="text-xl">Folders</CardTitle>
           </CardHeader>
           <CardContent className="grid gap-3 sm:grid-cols-2 lg:grid-cols-4">
-            {folderCards.map((folder) => (
+            {folderTypes.map((folder) => (
               <button
                 key={folder.title}
                 className="rounded-xl border border-border/60 bg-gradient-to-b from-blue-50 to-white p-4 text-center transition hover:border-primary focus:outline-none"
-                onClick={() => {
-                  setSelectedFolder(folder);
+                onClick={async () => {
+                  setSelectedFolder({ title: folder.title, count: `${folderCounts[folder.title]} files` });
+                  
+                  // Fetch documents for this folder type
+                  try {
+                    const response = await fetch(`${API_BASE_URL}/documents?type=employee-doc&documentType=${folder.documentType}`);
+                    if (response.ok) {
+                      const data = await response.json();
+                      const filteredDocs = data.data.filter((doc: any) => {
+                        const docType = doc.documentType?.toLowerCase() || '';
+                        const name = doc.name.toLowerCase();
+                        if (folder.documentType === 'pds') {
+                          return docType === 'pds' || name.includes('pds') || name.includes('personal data');
+                        } else if (folder.documentType === 'sr') {
+                          return docType === 'sr' || name.includes('service');
+                        } else if (folder.documentType === 'coe') {
+                          return docType === 'coe' || name.includes('certificate');
+                        } else if (folder.documentType === 'contract') {
+                          return docType === 'contract' || name.includes('contract');
+                        }
+                        return false;
+                      });
+                      
+                      // Also include files from employees table
+                      const empDocs = employees
+                        .filter(emp => {
+                          if (folder.documentType === 'pds' && emp.pdsFile) return true;
+                          if (folder.documentType === 'sr' && emp.serviceRecordFile) return true;
+                          return false;
+                        })
+                        .map(emp => ({
+                          id: emp.id,
+                          name: emp.fullName,
+                          employeeId: emp.employeeId,
+                          fileUrl: folder.documentType === 'pds' ? `/uploads/${emp.pdsFile}` : `/uploads/${emp.serviceRecordFile}`,
+                          fileSize: 'N/A',
+                          uploadedAt: emp.createdAt,
+                        }));
+                      
+                      setFolderDocuments([...filteredDocs, ...empDocs]);
+                    }
+                  } catch (error) {
+                    console.error('Error fetching folder documents', error);
+                  }
+                  
                   setShowFolderModal(true);
                 }}
               >
@@ -343,7 +449,7 @@ const Documents = () => {
                   </div>
                 </div>
                 <p className="font-medium">{folder.title}</p>
-                <p className="text-xs text-muted-foreground">{folder.count}</p>
+                <p className="text-xs text-muted-foreground">{folderCounts[folder.title]} files</p>
               </button>
             ))}
           </CardContent>
@@ -517,27 +623,63 @@ const Documents = () => {
             <div className="flex flex-col gap-4">
               <div className="relative w-full sm:w-72">
                 <Search className="absolute left-3 top-1/2 -translate-y-1/2 h-4 w-4 text-muted-foreground" />
-                <Input placeholder="Search" className="pl-9 rounded-full" />
+                <Input 
+                  placeholder="Search" 
+                  className="pl-9 rounded-full"
+                  value={folderSearchTerm}
+                  onChange={(e) => setFolderSearchTerm(e.target.value)}
+                />
               </div>
               <div className="overflow-x-auto border rounded-lg">
                 <table className="w-full text-sm">
                   <thead className="bg-primary text-white">
                     <tr>
-                      <th className="py-3 px-4 text-left font-medium">Name</th>
-                      <th className="py-3 px-4 text-left font-medium">Files</th>
+                      <th className="py-3 px-4 text-left font-medium">Employee Name</th>
+                      <th className="py-3 px-4 text-left font-medium">Employee ID</th>
+                      <th className="py-3 px-4 text-left font-medium">File</th>
                       <th className="py-3 px-4 text-left font-medium">Size</th>
                       <th className="py-3 px-4 text-left font-medium">Date Created</th>
                     </tr>
                   </thead>
                   <tbody>
-                    {documentRows.map((doc, idx) => (
-                      <tr key={doc.name} className={idx % 2 === 0 ? 'bg-[#eef3ff]' : 'bg-white'}>
-                        <td className="py-3 px-4 font-medium text-foreground">{doc.name}</td>
-                        <td className="py-3 px-4 text-blue-600 underline">{doc.pds}</td>
-                        <td className="py-3 px-4">65 KB</td>
-                        <td className="py-3 px-4">{doc.date}</td>
+                    {folderDocuments
+                      .filter(doc => 
+                        !folderSearchTerm || 
+                        doc.name?.toLowerCase().includes(folderSearchTerm.toLowerCase()) ||
+                        doc.employeeId?.toLowerCase().includes(folderSearchTerm.toLowerCase())
+                      )
+                      .length === 0 ? (
+                      <tr>
+                        <td colSpan={5} className="py-8 text-center text-muted-foreground">
+                          No documents found
+                        </td>
                       </tr>
-                    ))}
+                    ) : (
+                      folderDocuments
+                        .filter(doc => 
+                          !folderSearchTerm || 
+                          doc.name?.toLowerCase().includes(folderSearchTerm.toLowerCase()) ||
+                          doc.employeeId?.toLowerCase().includes(folderSearchTerm.toLowerCase())
+                        )
+                        .map((doc, idx) => (
+                          <tr key={doc.id || idx} className={idx % 2 === 0 ? 'bg-[#eef3ff]' : 'bg-white'}>
+                            <td className="py-3 px-4 font-medium text-foreground">{doc.name || 'N/A'}</td>
+                            <td className="py-3 px-4">{doc.employeeId || 'N/A'}</td>
+                            <td className="py-3 px-4">
+                              <a 
+                                href={`${API_BASE_URL}${doc.fileUrl}`} 
+                                target="_blank" 
+                                rel="noopener noreferrer" 
+                                className="text-blue-600 underline"
+                              >
+                                View
+                              </a>
+                            </td>
+                            <td className="py-3 px-4">{doc.fileSize || 'N/A'}</td>
+                            <td className="py-3 px-4">{new Date(doc.uploadedAt || doc.createdAt).toLocaleDateString()}</td>
+                          </tr>
+                        ))
+                    )}
                   </tbody>
                 </table>
               </div>
@@ -656,35 +798,7 @@ const Documents = () => {
                           });
 
                           // Refresh documents
-                          const refreshResponse = await fetch(`${API_BASE_URL}/documents?type=employee-doc`);
-                          if (refreshResponse.ok) {
-                            const refreshData = await refreshResponse.json();
-                            const employeeDocs = new Map<string, Document>();
-                            refreshData.data.forEach((doc: any) => {
-                              if (doc.employeeId) {
-                                if (!employeeDocs.has(doc.employeeId)) {
-                                  employeeDocs.set(doc.employeeId, {
-                                    id: doc.employeeId,
-                                    name: '',
-                                    employeeId: doc.employeeId,
-                                    pds: null,
-                                    sr: null,
-                                    coe: null,
-                                    date: doc.createdAt,
-                                  });
-                                }
-                                const empDoc = employeeDocs.get(doc.employeeId)!;
-                                if (doc.documentType === 'pds' || doc.name.toLowerCase().includes('pds')) {
-                                  empDoc.pds = doc.fileUrl;
-                                } else if (doc.documentType === 'sr' || doc.name.toLowerCase().includes('service')) {
-                                  empDoc.sr = doc.fileUrl;
-                                } else if (doc.documentType === 'coe' || doc.name.toLowerCase().includes('certificate')) {
-                                  empDoc.coe = doc.fileUrl;
-                                }
-                              }
-                            });
-                            setDocuments(Array.from(employeeDocs.values()));
-                          }
+                          await fetchAndProcessDocuments();
                         }
 
                         setShowEditDocDialog(false);

@@ -251,3 +251,35 @@ CREATE TABLE IF NOT EXISTS attendance (
   UNIQUE KEY unique_employee_date (employee_id, date)
 );
 
+CREATE TABLE IF NOT EXISTS settings (
+  id INT AUTO_INCREMENT PRIMARY KEY,
+  `key` VARCHAR(100) NOT NULL UNIQUE,
+  `value` TEXT NULL,
+  created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+  updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP
+);
+
+-- Insert default settings
+INSERT INTO settings (`key`, `value`) VALUES
+  ('siteTitle', 'Human Resource Management System'),
+  ('description', 'A web-based Human Resource Management System of The Great Plebeian College.'),
+  ('copyright', ''),
+  ('contactNumber', '+63 9837562539'),
+  ('systemEmail', 'system@gmail.com'),
+  ('address', 'Alaminos City, Pangasinan'),
+  ('logoUrl', NULL)
+ON DUPLICATE KEY UPDATE `value` = VALUES(`value`);
+
+CREATE TABLE IF NOT EXISTS password_reset_tokens (
+  id INT AUTO_INCREMENT PRIMARY KEY,
+  user_id INT NOT NULL,
+  token_hash VARCHAR(255) NOT NULL UNIQUE,
+  expires_at TIMESTAMP NOT NULL,
+  used BOOLEAN DEFAULT FALSE,
+  created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+  FOREIGN KEY (user_id) REFERENCES users(id) ON DELETE CASCADE,
+  INDEX idx_token_hash (token_hash),
+  INDEX idx_user_id (user_id),
+  INDEX idx_expires_at (expires_at)
+);
+

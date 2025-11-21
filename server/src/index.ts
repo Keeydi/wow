@@ -13,6 +13,7 @@ import activityLogRoutes from './routes/activityLogs';
 import documentRoutes from './routes/documents';
 import notificationRoutes from './routes/notifications';
 import attendanceRoutes from './routes/attendance';
+import settingsRoutes from './routes/settings';
 
 const app = express();
 const PORT = process.env.PORT || 4000;
@@ -50,6 +51,7 @@ app.use('/activity-logs', activityLogRoutes);
 app.use('/documents', documentRoutes);
 app.use('/notifications', notificationRoutes);
 app.use('/attendance', attendanceRoutes);
+app.use('/settings', settingsRoutes);
 
 // Global error handler
 app.use((err: any, req: express.Request, res: express.Response, next: express.NextFunction) => {

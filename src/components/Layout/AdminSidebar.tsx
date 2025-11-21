@@ -35,7 +35,7 @@ import {
 } from '@/components/ui/sidebar';
 import { Collapsible, CollapsibleContent, CollapsibleTrigger } from '@/components/ui/collapsible';
 import { cn } from '@/lib/utils';
-import { useMemo, useState } from 'react';
+import { useMemo, useState, useEffect } from 'react';
 import logo from '../../../images/logo.png';
 import {
   AlertDialog,
@@ -56,7 +56,7 @@ export function AdminSidebar() {
   const collapsed = state === 'collapsed';
 
   const [openGroups, setOpenGroups] = useState<Record<string, boolean>>({
-    employees: true,
+    employees: false,
     organization: false,
     attendance: false,
     documents: false,
@@ -94,6 +94,18 @@ export function AdminSidebar() {
   const attendanceActive = isPathActive(['/attendance']);
   const documentsActive = isPathActive(['/documents']);
   const settingsActive = isPathActive(['/settings']);
+
+  // Auto-open drawer when path is active
+  useEffect(() => {
+    setOpenGroups(prev => ({
+      ...prev,
+      employees: employeesActive,
+      organization: organizationActive,
+      attendance: attendanceActive,
+      documents: documentsActive,
+      settings: settingsActive,
+    }));
+  }, [employeesActive, organizationActive, attendanceActive, documentsActive, settingsActive]);
   const employeeMenuItems = useMemo(
     () => [
       {

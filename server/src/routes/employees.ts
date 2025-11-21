@@ -238,24 +238,42 @@ router.post('/', async (req, res) => {
 
       insertId = (result as any).insertId;
 
-      await connection.execute(
-        `INSERT INTO users (username, email, employee_id, full_name, role, password_hash)
-         VALUES (?, ?, ?, ?, ?, ?)
-         ON DUPLICATE KEY UPDATE
-           email = VALUES(email),
-           employee_id = VALUES(employee_id),
-           full_name = VALUES(full_name),
-           role = VALUES(role),
-           password_hash = VALUES(password_hash)`,
-        [
-          employeeId,
-          email,
-          employeeId,
-          normalizedFullName,
-          normalizeRole(role),
-          hashedPassword,
-        ],
+      // Check if user already exists
+      const [existingUsers] = await connection.execute<any[]>(
+        'SELECT id, username, email, employee_id FROM users WHERE username = ? OR email = ? OR employee_id = ?',
+        [employeeId, email, employeeId]
       );
+
+      if (existingUsers.length > 0) {
+        // Update existing user
+        await connection.execute(
+          `UPDATE users 
+           SET email = ?, employee_id = ?, full_name = ?, role = ?, password_hash = ?
+           WHERE id = ?`,
+          [
+            email,
+            employeeId,
+            normalizedFullName,
+            normalizeRole(role),
+            hashedPassword,
+            existingUsers[0].id,
+          ],
+        );
+      } else {
+        // Create new user
+        await connection.execute(
+          `INSERT INTO users (username, email, employee_id, full_name, role, password_hash)
+           VALUES (?, ?, ?, ?, ?, ?)`,
+          [
+            employeeId,
+            email,
+            employeeId,
+            normalizedFullName,
+            normalizeRole(role),
+            hashedPassword,
+          ],
+        );
+      }
 
       await connection.commit();
     } catch (transactionError) {

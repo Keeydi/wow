@@ -51,6 +51,12 @@ const Dashboard = () => {
   const [todos, setTodos] = useState<Todo[]>([]);
   const [showTodoModal, setShowTodoModal] = useState(false);
   const [newTodoTask, setNewTodoTask] = useState('');
+  const [todayAttendance, setTodayAttendance] = useState<any[]>([]);
+  const [attendanceStats, setAttendanceStats] = useState({
+    present: 0,
+    absent: 0,
+    late: 0,
+  });
 
   // Get current month and year
   const currentDate = new Date();
@@ -141,6 +147,90 @@ const Dashboard = () => {
     }
   };
 
+  // Fetch today's attendance and calculate stats
+  const fetchTodayAttendance = async () => {
+    try {
+      const today = new Date().toISOString().split('T')[0];
+      const response = await fetch(`${API_BASE_URL}/attendance?date=${today}`);
+      
+      if (!response.ok) {
+        throw new Error('Failed to fetch attendance');
+      }
+      
+      const data = await response.json();
+      const attendance = data.data || [];
+      setTodayAttendance(attendance);
+      
+      // Get active employees count
+      const employeesResponse = await fetch(`${API_BASE_URL}/employees?status=active`);
+      let activeEmployeesCount = 0;
+      if (employeesResponse.ok) {
+        const employeesData = await employeesResponse.json();
+        activeEmployeesCount = employeesData.data?.length || 0;
+      }
+      
+      // Calculate stats
+      const present = attendance.filter((att: any) => att.status === 'present').length;
+      const late = attendance.filter((att: any) => att.status === 'late').length;
+      const absent = activeEmployeesCount - (present + late);
+      
+      setAttendanceStats({
+        present: Math.max(0, present),
+        absent: Math.max(0, absent),
+        late: Math.max(0, late),
+      });
+    } catch (error) {
+      // Silently fail if server is not running
+      if (error instanceof TypeError && error.message.includes('Failed to fetch')) {
+        setAttendanceStats({ present: 0, absent: 0, late: 0 });
+        return;
+      }
+      console.error('Error fetching attendance', error);
+    }
+  };
+
+  // Check and reset stats daily at 11:59 PM (resets to 0, then fetches new day data at midnight)
+  useEffect(() => {
+    const getTodayDateString = () => new Date().toISOString().split('T')[0];
+    let lastCheckedDate = getTodayDateString();
+    let hasResetToday = false;
+    
+    const checkAndReset = () => {
+      const now = new Date();
+      const currentDate = getTodayDateString();
+      const hours = now.getHours();
+      const minutes = now.getMinutes();
+      
+      // Check if it's past 11:59 PM (23:59) - reset counts to 0
+      if (hours === 23 && minutes >= 59 && !hasResetToday) {
+        // Reset stats at 11:59 PM
+        setAttendanceStats({ present: 0, absent: 0, late: 0 });
+        setTodayAttendance([]);
+        hasResetToday = true;
+      } 
+      // Check if it's a new day (date changed after midnight)
+      else if (currentDate !== lastCheckedDate) {
+        // New day - reset flag and fetch fresh data
+        hasResetToday = false;
+        lastCheckedDate = currentDate;
+        fetchTodayAttendance();
+      }
+      // Same day - just fetch/update attendance (unless we just reset)
+      else if (!hasResetToday || (hours < 23 || minutes < 59)) {
+        fetchTodayAttendance();
+      }
+    };
+
+    // Check immediately
+    checkAndReset();
+    
+    // Check every minute
+    const interval = setInterval(checkAndReset, 60000);
+    
+    return () => clearInterval(interval);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, []);
+
   // Load todos
   useEffect(() => {
     setTodos(todoStorage.getAll());
@@ -150,6 +240,7 @@ const Dashboard = () => {
     if (user?.role === 'admin') {
       fetchCalendarEvents();
       fetchRecentActivities();
+      fetchTodayAttendance();
     }
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [currentMonth, currentYear, user?.role]);
@@ -424,21 +515,7 @@ const Dashboard = () => {
                     <Users className="w-5 h-5 text-muted-foreground" />
                   </div>
                   <div>
-                    <div className="text-2xl font-bold">{dashboardStats.inactiveEmployees}</div>
-                    <p className="text-sm text-muted-foreground">Former Employees</p>
-                  </div>
-                </div>
-              </CardContent>
-            </Card>
-
-            <Card>
-              <CardContent className="pt-4">
-                <div className="flex items-center gap-3">
-                  <div className="w-10 h-10 rounded-full bg-muted flex items-center justify-center">
-                    <Users className="w-5 h-5 text-muted-foreground" />
-                  </div>
-                  <div>
-                    <div className="text-2xl font-bold">{dashboardStats.absentToday}</div>
+                    <div className="text-2xl font-bold">{attendanceStats.absent}</div>
                     <p className="text-sm text-muted-foreground">Absent Employees</p>
                   </div>
                 </div>
@@ -452,8 +529,22 @@ const Dashboard = () => {
                     <Users className="w-5 h-5 text-muted-foreground" />
                   </div>
                   <div>
-                    <div className="text-2xl font-bold">{dashboardStats.presentToday}</div>
+                    <div className="text-2xl font-bold">{attendanceStats.present}</div>
                     <p className="text-sm text-muted-foreground">Present Employees</p>
+                  </div>
+                </div>
+              </CardContent>
+            </Card>
+
+            <Card>
+              <CardContent className="pt-4">
+                <div className="flex items-center gap-3">
+                  <div className="w-10 h-10 rounded-full bg-muted flex items-center justify-center">
+                    <Users className="w-5 h-5 text-muted-foreground" />
+                  </div>
+                  <div>
+                    <div className="text-2xl font-bold">{attendanceStats.late}</div>
+                    <p className="text-sm text-muted-foreground">Late Employees</p>
                   </div>
                 </div>
               </CardContent>
@@ -462,7 +553,7 @@ const Dashboard = () => {
 
           {/* Calendar and To Do List */}
           <div className="grid gap-3 md:grid-cols-2">
-            <Card className="min-h-[520px] flex flex-col">
+            <Card className="h-[320px] flex flex-col">
               <CardHeader className="pb-2">
                 <CardTitle className="text-xl">
                   {new Date().toLocaleDateString('en-US', { month: 'long', year: 'numeric' }).toUpperCase()}
@@ -476,7 +567,7 @@ const Dashboard = () => {
                     </div>
                   ))}
                 </div>
-                <div className="grid grid-cols-7 gap-1 flex-1 auto-rows-[minmax(60px,1fr)]">
+                <div className="grid grid-cols-7 gap-1 flex-1 auto-rows-[minmax(35px,1fr)]">
                   {calendarDays.map((day, index) => {
                     const dayEvents = day ? calendarEvents[day] || [] : [];
                     const hasEvents = dayEvents.length > 0;
@@ -580,7 +671,7 @@ const Dashboard = () => {
               </CardContent>
             </Card>
 
-            <Card className="min-h-[520px] flex flex-col">
+            <Card className="h-[320px] flex flex-col">
               <CardHeader className="pb-2">
                 <div className="flex items-center justify-between">
                   <div>
@@ -596,15 +687,15 @@ const Dashboard = () => {
                   </Button>
                 </div>
               </CardHeader>
-              <CardContent className="pt-0 flex-1 flex flex-col">
-                <div className="space-y-3 flex-1">
+              <CardContent className="pt-0 flex-1 flex flex-col overflow-y-auto">
+                <div className="space-y-2 flex-1">
                   {todos.length === 0 ? (
                     <div className="flex items-center justify-center h-full text-muted-foreground text-sm">
                       No tasks yet. Click + to add one.
                     </div>
                   ) : (
                     todos.map((item) => (
-                      <div key={item.id} className="flex items-center gap-3 py-2 group">
+                      <div key={item.id} className="flex items-center gap-3 py-1 group">
                         <button
                           onClick={() => handleToggleTodo(item.id)}
                           className={`w-5 h-5 rounded-full border-2 flex items-center justify-center transition-colors ${
@@ -810,21 +901,7 @@ const Dashboard = () => {
                   <Users className="w-5 h-5 text-muted-foreground" />
                 </div>
                 <div>
-                  <div className="text-2xl font-bold">4</div>
-                  <p className="text-sm text-muted-foreground">Former Employees</p>
-                </div>
-              </div>
-            </CardContent>
-          </Card>
-
-          <Card>
-            <CardContent className="pt-4">
-              <div className="flex items-center gap-3">
-                <div className="w-10 h-10 rounded-full bg-muted flex items-center justify-center">
-                  <Users className="w-5 h-5 text-muted-foreground" />
-                </div>
-                <div>
-                  <div className="text-2xl font-bold">2</div>
+                  <div className="text-2xl font-bold">{attendanceStats.absent}</div>
                   <p className="text-sm text-muted-foreground">Absent Employees</p>
                 </div>
               </div>
@@ -838,8 +915,22 @@ const Dashboard = () => {
                   <Users className="w-5 h-5 text-muted-foreground" />
                 </div>
                 <div>
-                  <div className="text-2xl font-bold">48</div>
+                  <div className="text-2xl font-bold">{attendanceStats.present}</div>
                   <p className="text-sm text-muted-foreground">Present Employees</p>
+                </div>
+              </div>
+            </CardContent>
+          </Card>
+
+          <Card>
+            <CardContent className="pt-4">
+              <div className="flex items-center gap-3">
+                <div className="w-10 h-10 rounded-full bg-muted flex items-center justify-center">
+                  <Users className="w-5 h-5 text-muted-foreground" />
+                </div>
+                <div>
+                  <div className="text-2xl font-bold">{attendanceStats.late}</div>
+                  <p className="text-sm text-muted-foreground">Late Employees</p>
                 </div>
               </div>
             </CardContent>
@@ -848,7 +939,7 @@ const Dashboard = () => {
 
         {/* Calendar and To-Do List */}
         <div className="grid gap-3 md:grid-cols-2">
-          <Card className="min-h-[520px] flex flex-col">
+          <Card className="h-[320px] flex flex-col">
             <CardHeader className="pb-2">
               <CardTitle className="text-xl">APRIL 2025</CardTitle>
             </CardHeader>
@@ -860,7 +951,7 @@ const Dashboard = () => {
                   </div>
                 ))}
               </div>
-              <div className="grid grid-cols-7 gap-1 flex-1 auto-rows-[minmax(60px,1fr)]">
+              <div className="grid grid-cols-7 gap-1 flex-1 auto-rows-[minmax(35px,1fr)]">
                 {calendarDays.map((day, index) => {
                   const dayEvents = day ? calendarEvents[day] || [] : [];
                   const hasEvents = dayEvents.length > 0;
@@ -963,7 +1054,7 @@ const Dashboard = () => {
             </CardContent>
           </Card>
 
-          <Card className="min-h-[520px] flex flex-col">
+          <Card className="h-[320px] flex flex-col">
             <CardHeader className="pb-2">
               <div className="flex items-center justify-between">
                 <div>
@@ -979,15 +1070,15 @@ const Dashboard = () => {
                 </Button>
               </div>
             </CardHeader>
-            <CardContent className="pt-0 flex-1 flex flex-col">
-              <div className="space-y-3 flex-1">
+            <CardContent className="pt-0 flex-1 flex flex-col overflow-y-auto">
+              <div className="space-y-2 flex-1">
                 {todos.length === 0 ? (
                   <div className="flex items-center justify-center h-full text-muted-foreground text-sm">
                     No tasks yet. Click + to add one.
                   </div>
                 ) : (
                   todos.map((item) => (
-                    <div key={item.id} className="flex items-center gap-3 py-2 group">
+                    <div key={item.id} className="flex items-center gap-3 py-1 group">
                       <button
                         onClick={() => handleToggleTodo(item.id)}
                         className={`w-5 h-5 rounded-full border-2 flex items-center justify-center transition-colors ${

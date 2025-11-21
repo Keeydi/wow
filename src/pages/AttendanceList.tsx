@@ -83,12 +83,55 @@ const AttendanceList = () => {
         setIsLoading(true);
         const [attendanceRes, employeesRes] = await Promise.all([
           fetch(`${API_BASE_URL}/attendance`),
-          fetch(`${API_BASE_URL}/employees`),
+          fetch(`${API_BASE_URL}/employees?status=active`),
         ]);
 
         if (attendanceRes.ok) {
           const attendanceData = await attendanceRes.json();
-          setAttendance(attendanceData.data || []);
+          let attendanceRecords = attendanceData.data || [];
+          
+          // Auto-mark absent employees if no attendance by 5 PM
+          if (employeesRes.ok) {
+            const employeesData = await employeesRes.json();
+            const activeEmployees = employeesData.data || [];
+            const today = new Date().toISOString().split('T')[0];
+            const now = new Date();
+            const currentHour = now.getHours();
+            const currentMinute = now.getMinutes();
+            
+            // If it's past 5 PM, mark employees without attendance as absent
+            if (currentHour >= 17) { // 5 PM
+              const todayAttendance = attendanceRecords.filter((att: Attendance) => att.date === today);
+              const attendedEmployeeIds = new Set(todayAttendance.map((att: Attendance) => att.employeeId));
+              
+              activeEmployees.forEach((emp: Employee) => {
+                if (!attendedEmployeeIds.has(emp.employeeId)) {
+                  // Check if absent record already exists
+                  const existingAbsent = attendanceRecords.find(
+                    (att: Attendance) => att.employeeId === emp.employeeId && att.date === today && att.status === 'absent'
+                  );
+                  
+                  if (!existingAbsent) {
+                    // Create absent record
+                    attendanceRecords.push({
+                      id: `absent-${emp.employeeId}-${today}`,
+                      employeeId: emp.employeeId,
+                      employeeName: emp.fullName,
+                      date: today,
+                      checkIn: undefined,
+                      checkOut: undefined,
+                      status: 'absent',
+                      notes: 'Auto-marked absent - no attendance by 5 PM',
+                      createdAt: new Date().toISOString(),
+                      updatedAt: new Date().toISOString(),
+                    });
+                  }
+                }
+              });
+            }
+          }
+          
+          setAttendance(attendanceRecords);
         }
 
         if (employeesRes.ok) {
@@ -108,6 +151,10 @@ const AttendanceList = () => {
     };
 
     fetchData();
+    
+    // Refresh every minute to check for auto-absent
+    const interval = setInterval(fetchData, 60000);
+    return () => clearInterval(interval);
   }, [toast]);
 
   const departmentRecords = useMemo(() => {
@@ -147,11 +194,11 @@ const AttendanceList = () => {
         return `${displayHour}:${minutes} ${ampm}`;
       };
 
-      // Calculate minutes late if check-in is after 8:00
+      // Calculate minutes late if check-in is after 8:11 AM
       let statusText = statusMap[att.status] || att.status;
       if (att.checkIn && (att.status === 'late' || att.status === 'present')) {
         const checkInTime = new Date(`2000-01-01T${att.checkIn}`);
-        const expectedTime = new Date('2000-01-01T08:00');
+        const expectedTime = new Date('2000-01-01T08:11'); // 8:11 AM threshold
         const minutesLate = Math.floor((checkInTime.getTime() - expectedTime.getTime()) / 60000);
         
         if (minutesLate > 0) {

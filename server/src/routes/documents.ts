@@ -257,6 +257,77 @@ router.post('/', upload.single('file'), async (req, res) => {
   }
 });
 
+// PUT update document
+router.put('/:id', upload.single('file'), async (req, res) => {
+  try {
+    const { id } = req.params;
+    const { name, category, description } = req.body;
+
+    // Get existing document
+    const [existingRows] = await pool.execute<DbDocument[]>(
+      'SELECT * FROM documents WHERE id = ?',
+      [id]
+    );
+
+    if (existingRows.length === 0) {
+      return res.status(404).json({ message: 'Document not found' });
+    }
+
+    const existingDoc = existingRows[0];
+    let fileUrl = existingDoc.file_url;
+    let filePath = existingDoc.file_path;
+    let fileSize = existingDoc.file_size;
+
+    // If new file is uploaded, replace the old one
+    if (req.file) {
+      // Delete old file
+      if (existingDoc.file_path && fs.existsSync(existingDoc.file_path)) {
+        try {
+          fs.unlinkSync(existingDoc.file_path);
+        } catch (unlinkError) {
+          console.error('Error deleting old file', unlinkError);
+        }
+      }
+
+      fileUrl = `/uploads/${req.file.filename}`;
+      filePath = req.file.path;
+      fileSize = req.file.size;
+    }
+
+    // Update document
+    await pool.execute(
+      `UPDATE documents 
+       SET name = ?, category = ?, description = ?, file_url = ?, file_path = ?, file_size = ?, updated_at = NOW()
+       WHERE id = ?`,
+      [
+        name || existingDoc.name,
+        category !== undefined ? category : existingDoc.category,
+        description !== undefined ? description : existingDoc.description,
+        fileUrl,
+        filePath,
+        fileSize,
+        id,
+      ]
+    );
+
+    // Get updated document
+    const [updatedRows] = await pool.execute<DbDocument[]>(
+      `SELECT id, name, type, category, file_path, file_url, file_size, employee_id, 
+              document_type, uploaded_by, description, created_at, updated_at
+       FROM documents WHERE id = ?`,
+      [id]
+    );
+
+    return res.json({
+      message: 'Document updated successfully',
+      data: mapDocumentRow(updatedRows[0]),
+    });
+  } catch (error) {
+    console.error('Error updating document', error);
+    return res.status(500).json({ message: 'Unexpected error while updating document' });
+  }
+});
+
 // DELETE document
 router.delete('/:id', async (req, res) => {
   try {

@@ -2,8 +2,10 @@ import { Router } from 'express';
 import { z } from 'zod';
 import bcrypt from 'bcryptjs';
 import jwt from 'jsonwebtoken';
+import crypto from 'crypto';
 import { pool } from '../db';
 import { DbUser } from '../types';
+import { sendPasswordResetEmail } from '../utils/emailer';
 
 const loginSchema = z.object({
   identifier: z.string().min(1, 'Username, email or employee ID is required'),
@@ -145,12 +147,35 @@ router.post('/forgot-password', async (req, res) => {
       });
     }
 
-    // In a real application, you would:
-    // 1. Generate a secure reset token
-    // 2. Store it in the database with an expiration
-    // 3. Send an email with the reset link
-    // For now, we'll just return success
-    // TODO: Implement email sending functionality
+    // Generate a secure reset token
+    const resetToken = crypto.randomBytes(32).toString('hex');
+    const tokenHash = crypto.createHash('sha256').update(resetToken).digest('hex');
+    const expiresAt = new Date(Date.now() + 3600000); // 1 hour from now
+
+    // Store token in database
+    try {
+      await pool.execute(
+        `INSERT INTO password_reset_tokens (user_id, token_hash, expires_at)
+         VALUES (?, ?, ?)
+         ON DUPLICATE KEY UPDATE token_hash = ?, expires_at = ?`,
+        [user.id, tokenHash, expiresAt, tokenHash, expiresAt]
+      );
+
+      // Send email with reset link
+      const emailSent = await sendPasswordResetEmail(
+        user.email,
+        resetToken,
+        user.full_name || 'User'
+      );
+
+      if (!emailSent) {
+        console.error('Failed to send password reset email');
+        // Still return success to prevent email enumeration
+      }
+    } catch (error) {
+      console.error('Error storing reset token:', error);
+      // Still return success to prevent email enumeration
+    }
 
     return res.json({
       message: 'If an account with that email exists, a password reset link has been sent.',
@@ -179,19 +204,55 @@ router.post('/reset-password', async (req, res) => {
   const { token, newPassword } = parseResult.data;
 
   try {
-    // In a real application, you would:
-    // 1. Verify the token from the database
-    // 2. Check if it's expired
-    // 3. Update the password
-    // For now, we'll use a simple approach with email
-    // TODO: Implement proper token verification
+    // Hash the token to compare with stored hash
+    const tokenHash = crypto.createHash('sha256').update(token).digest('hex');
 
-    return res.status(501).json({
-      message: 'Password reset via email is not fully implemented yet. Please contact admin.',
+    // Find the token in database
+    const [tokenRows] = await pool.execute<any[]>(
+      `SELECT prt.user_id, prt.expires_at, u.email
+       FROM password_reset_tokens prt
+       JOIN users u ON prt.user_id = u.id
+       WHERE prt.token_hash = ? AND prt.used = FALSE
+       LIMIT 1`,
+      [tokenHash]
+    );
+
+    if (tokenRows.length === 0) {
+      return res.status(400).json({
+        message: 'Invalid or expired reset token.',
+      });
+    }
+
+    const tokenData = tokenRows[0];
+
+    // Check if token is expired
+    if (new Date(tokenData.expires_at) < new Date()) {
+      return res.status(400).json({
+        message: 'Reset token has expired. Please request a new one.',
+      });
+    }
+
+    // Hash the new password
+    const hashedPassword = await bcrypt.hash(newPassword, 10);
+
+    // Update user password
+    await pool.execute(
+      'UPDATE users SET password_hash = ? WHERE id = ?',
+      [hashedPassword, tokenData.user_id]
+    );
+
+    // Mark token as used
+    await pool.execute(
+      'UPDATE password_reset_tokens SET used = TRUE WHERE token_hash = ?',
+      [tokenHash]
+    );
+
+    return res.json({
+      message: 'Password has been reset successfully. You can now login with your new password.',
     });
   } catch (error) {
     console.error('Reset password error', error);
-    return res.status(500).json({ message: 'Unexpected error' });
+    return res.status(500).json({ message: 'Unexpected error while resetting password' });
   }
 });
 
@@ -247,6 +308,19 @@ router.post('/change-password', async (req, res) => {
       `UPDATE users SET password_hash = ?, password_reset_required = FALSE WHERE id = ?`,
       [hashedPassword, userId],
     );
+
+    // Also update password in employees table if user is an employee
+    const [userRows] = await pool.execute<any[]>(
+      `SELECT employee_id FROM users WHERE id = ? LIMIT 1`,
+      [userId],
+    );
+    
+    if (userRows.length > 0 && userRows[0].employee_id) {
+      await pool.execute(
+        `UPDATE employees SET password_hash = ? WHERE id = ?`,
+        [hashedPassword, userRows[0].employee_id],
+      );
+    }
 
     return res.json({ message: 'Password changed successfully' });
   } catch (error) {
