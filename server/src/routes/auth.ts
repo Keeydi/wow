@@ -279,8 +279,8 @@ router.post('/change-password', async (req, res) => {
 
   try {
     const token = authHeader.substring(7);
-    const decoded = jwt.verify(token, process.env.JWT_SECRET || 'hrhub-secret') as { sub: number };
-    const userId = decoded.sub;
+    const decoded = jwt.verify(token, process.env.JWT_SECRET || 'hrhub-secret') as { sub: number | string };
+    const userId = typeof decoded.sub === 'string' ? parseInt(decoded.sub, 10) : decoded.sub;
 
     const { data: user, error: userError } = await supabase
       .from('users')

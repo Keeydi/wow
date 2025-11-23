@@ -63,8 +63,8 @@ router.post('/', async (req, res) => {
       .select('id, name, created_at, updated_at')
       .single();
 
-    if (insertError) {
-      throw insertError;
+    if (insertError || !newDesignation) {
+      throw insertError || new Error('Failed to create designation');
     }
 
     // Log activity
@@ -72,7 +72,7 @@ router.post('/', async (req, res) => {
       userName: req.body.createdBy || 'System',
       actionType: 'CREATE',
       resourceType: 'Designation',
-      resourceId: String(insertId),
+      resourceId: String(newDesignation.id),
       resourceName: name,
       description: `Designation "${name}" was created`,
       ipAddress: getClientIp(req),

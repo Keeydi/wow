@@ -1,0 +1,28 @@
+{
+  "environmentVariables": {
+    "VITE_API_URL": {
+      "value": "https://your-backend-url.railway.app",
+      "description": "Backend API URL - Replace with your actual deployed backend URL",
+      "environments": ["production", "preview", "development"],
+      "required": true,
+      "example": "https://your-app.railway.app or https://your-app.onrender.com"
+    }
+  },
+  "notes": {
+    "important": [
+      "Replace 'your-backend-url.railway.app' with your actual backend deployment URL",
+      "After adding variables, you MUST redeploy for changes to take effect",
+      "VITE_ prefix is required for Vite to expose the variable to the frontend"
+    ],
+    "howToAdd": [
+      "1. Go to Vercel Dashboard → Your Project → Settings → Environment Variables",
+      "2. Click 'Add New'",
+      "3. Enter variable name: VITE_API_URL",
+      "4. Enter your backend URL as the value",
+      "5. Select all environments (Production, Preview, Development)",
+      "6. Click 'Save'",
+      "7. Go to Deployments → Redeploy"
+    ]
+  }
+}
+

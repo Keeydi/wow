@@ -105,7 +105,7 @@ router.get('/', async (req, res) => {
   try {
     let query = supabase
       .from('employees')
-      .select('id, employee_id, first_name, middle_name, last_name, suffix_name, full_name, department, position, email, phone, date_of_birth, address, gender, civil_status, date_hired, date_of_leaving, employment_type, role, sss_number, pagibig_number, tin_number, emergency_contact, educational_background, signature_file, pds_file, service_record_file, registered_face_file, status, archived_reason, archived_at, created_at, updated_at')
+      .select('id, employee_id, first_name, middle_name, last_name, suffix_name, full_name, department, position, email, phone, date_of_birth, address, gender, civil_status, date_hired, date_of_leaving, employment_type, role, sss_number, pagibig_number, tin_number, emergency_contact, educational_background, signature_file, pds_file, service_record_file, registered_face_file, password_hash, status, archived_reason, archived_at, created_at, updated_at')
       .order('created_at', { ascending: false });
 
     if (status === 'active' || status === 'inactive') {

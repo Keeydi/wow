@@ -1,0 +1,42 @@
+==========================================
+VERCEL ENVIRONMENT VARIABLES (Copy & Paste)
+==========================================
+
+Variable Name: VITE_API_URL
+Variable Value: https://your-backend-url.railway.app
+
+==========================================
+BACKEND ENVIRONMENT VARIABLES (Copy & Paste)
+==========================================
+
+Variable Name: PORT
+Variable Value: 4000
+
+Variable Name: CLIENT_ORIGIN
+Variable Value: https://your-app.vercel.app,https://*.vercel.app
+
+Variable Name: SUPABASE_URL
+Variable Value: https://ovkytjxiaxlrdxkgqcch.supabase.co
+
+Variable Name: SUPABASE_SERVICE_ROLE_KEY
+Variable Value: (Get from Supabase Dashboard → Settings → API)
+
+Variable Name: JWT_SECRET
+Variable Value: (Use a strong random string, 32+ characters)
+
+==========================================
+OPTIONAL (Email/Password Reset)
+==========================================
+
+Variable Name: SMTP_HOST
+Variable Value: smtp.gmail.com
+
+Variable Name: SMTP_PORT
+Variable Value: 587
+
+Variable Name: SMTP_USER
+Variable Value: your-email@gmail.com
+
+Variable Name: SMTP_PASSWORD
+Variable Value: your-app-password
+

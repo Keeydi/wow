@@ -17,13 +17,14 @@ export const supabase = createClient(SUPABASE_URL, SUPABASE_SERVICE_ROLE_KEY, {
 });
 
 // Test database connection on startup
-supabase.from('users').select('id').limit(1)
-  .then(() => {
+(async () => {
+  try {
+    await supabase.from('users').select('id').limit(1);
     console.log('✅ Database connected successfully');
-  })
-  .catch((error) => {
-    console.error('❌ Database connection failed:', error.message);
+  } catch (error: any) {
+    console.error('❌ Database connection failed:', error?.message || error);
     console.error('Please check your Supabase configuration in server/.env');
     console.error('Make sure SUPABASE_URL and SUPABASE_SERVICE_ROLE_KEY are set correctly.');
-  });
+  }
+})();
 

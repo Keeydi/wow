@@ -63,8 +63,8 @@ router.post('/', async (req, res) => {
       .select('id, name, created_at, updated_at')
       .single();
 
-    if (insertError) {
-      throw insertError;
+    if (insertError || !newDepartment) {
+      throw insertError || new Error('Failed to create department');
     }
 
     // Log activity
@@ -72,7 +72,7 @@ router.post('/', async (req, res) => {
       userName: req.body.createdBy || 'System',
       actionType: 'CREATE',
       resourceType: 'Department',
-      resourceId: String(insertId),
+      resourceId: String(newDepartment.id),
       resourceName: name,
       description: `Department "${name}" was created`,
       ipAddress: getClientIp(req),

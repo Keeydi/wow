@@ -1,0 +1,90 @@
+{
+  "environmentVariables": {
+    "PORT": {
+      "value": "4000",
+      "description": "Port for the Express server to listen on",
+      "required": true
+    },
+    "CLIENT_ORIGIN": {
+      "value": "https://your-app.vercel.app,https://*.vercel.app",
+      "description": "Allowed CORS origins - Add your Vercel domain(s) here",
+      "required": true,
+      "note": "Comma-separated list of allowed origins"
+    },
+    "SUPABASE_URL": {
+      "value": "https://ovkytjxiaxlrdxkgqcch.supabase.co",
+      "description": "Your Supabase project URL",
+      "required": true,
+      "note": "Get this from Supabase Dashboard → Settings → API"
+    },
+    "SUPABASE_SERVICE_ROLE_KEY": {
+      "value": "your-service-role-key",
+      "description": "Supabase service role key (keep secret!)",
+      "required": true,
+      "note": "Get this from Supabase Dashboard → Settings → API → service_role key"
+    },
+    "JWT_SECRET": {
+      "value": "your-secret-key-here",
+      "description": "Secret key for JWT token signing",
+      "required": true,
+      "note": "Use a strong random string (at least 32 characters)"
+    },
+    "SMTP_HOST": {
+      "value": "smtp.gmail.com",
+      "description": "SMTP server for email (optional, for password reset)",
+      "required": false
+    },
+    "SMTP_PORT": {
+      "value": "587",
+      "description": "SMTP port",
+      "required": false
+    },
+    "SMTP_SECURE": {
+      "value": "false",
+      "description": "Use TLS/SSL for SMTP",
+      "required": false
+    },
+    "SMTP_USER": {
+      "value": "your-email@gmail.com",
+      "description": "SMTP username/email",
+      "required": false
+    },
+    "SMTP_PASSWORD": {
+      "value": "your-app-password",
+      "description": "SMTP password or app password",
+      "required": false,
+      "note": "For Gmail, use App Password, not regular password"
+    }
+  },
+  "deploymentPlatforms": {
+    "railway": {
+      "instructions": "Add these as environment variables in Railway dashboard",
+      "rootDirectory": "server"
+    },
+    "render": {
+      "instructions": "Add these in Render dashboard → Environment section",
+      "buildCommand": "cd server && npm install && npm run build",
+      "startCommand": "cd server && npm start",
+      "rootDirectory": "server"
+    },
+    "flyio": {
+      "instructions": "Use: flyctl secrets set KEY=value",
+      "example": "flyctl secrets set SUPABASE_URL=https://..."
+    }
+  },
+  "requiredVariables": [
+    "PORT",
+    "CLIENT_ORIGIN",
+    "SUPABASE_URL",
+    "SUPABASE_SERVICE_ROLE_KEY",
+    "JWT_SECRET"
+  ],
+  "optionalVariables": [
+    "SMTP_HOST",
+    "SMTP_PORT",
+    "SMTP_SECURE",
+    "SMTP_USER",
+    "SMTP_PASSWORD"
+  ]
+}
+

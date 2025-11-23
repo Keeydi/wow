@@ -19,7 +19,7 @@ const mapNotificationRow = (row: DbNotification) => ({
   description: row.description || '',
   type: row.type,
   relatedId: row.related_id || null,
-  isRead: row.is_read === 1 || row.is_read === true,
+  isRead: row.is_read === true,
   createdAt: row.created_at,
 });
 

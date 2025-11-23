@@ -1,0 +1,90 @@
+{
+  "frontend": {
+    "platform": "Vercel",
+    "variables": [
+      {
+        "name": "VITE_API_URL",
+        "value": "https://your-backend-url.railway.app",
+        "description": "Backend API URL - Replace with your actual deployed backend URL",
+        "required": true,
+        "environments": ["production", "preview", "development"]
+      }
+    ],
+    "instructions": {
+      "step1": "Go to Vercel Dashboard → Your Project → Settings → Environment Variables",
+      "step2": "Click 'Add New' and add VITE_API_URL with your backend URL",
+      "step3": "Select all environments (Production, Preview, Development)",
+      "step4": "Save and Redeploy"
+    }
+  },
+  "backend": {
+    "platform": "Railway/Render/Fly.io",
+    "variables": [
+      {
+        "name": "PORT",
+        "value": "4000",
+        "required": true
+      },
+      {
+        "name": "CLIENT_ORIGIN",
+        "value": "https://your-app.vercel.app,https://*.vercel.app",
+        "description": "Add your Vercel domain here",
+        "required": true
+      },
+      {
+        "name": "SUPABASE_URL",
+        "value": "https://ovkytjxiaxlrdxkgqcch.supabase.co",
+        "description": "Your Supabase project URL",
+        "required": true
+      },
+      {
+        "name": "SUPABASE_SERVICE_ROLE_KEY",
+        "value": "your-service-role-key",
+        "description": "Get from Supabase Dashboard → Settings → API",
+        "required": true,
+        "secret": true
+      },
+      {
+        "name": "JWT_SECRET",
+        "value": "your-secret-key-here",
+        "description": "Strong random string (32+ characters)",
+        "required": true,
+        "secret": true
+      },
+      {
+        "name": "SMTP_HOST",
+        "value": "smtp.gmail.com",
+        "required": false
+      },
+      {
+        "name": "SMTP_PORT",
+        "value": "587",
+        "required": false
+      },
+      {
+        "name": "SMTP_USER",
+        "value": "your-email@gmail.com",
+        "required": false
+      },
+      {
+        "name": "SMTP_PASSWORD",
+        "value": "your-app-password",
+        "required": false,
+        "secret": true
+      }
+    ]
+  },
+  "quickCopy": {
+    "vercel": {
+      "VITE_API_URL": "https://your-backend-url.railway.app"
+    },
+    "railway": {
+      "PORT": "4000",
+      "CLIENT_ORIGIN": "https://your-app.vercel.app,https://*.vercel.app",
+      "SUPABASE_URL": "https://ovkytjxiaxlrdxkgqcch.supabase.co",
+      "SUPABASE_SERVICE_ROLE_KEY": "REPLACE_WITH_YOUR_KEY",
+      "JWT_SECRET": "REPLACE_WITH_STRONG_SECRET"
+    }
+  }
+}
+
