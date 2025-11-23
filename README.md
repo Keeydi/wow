@@ -52,6 +52,18 @@ This project is built with:
 
 ## How can I deploy this project?
 
+### Deploy to Vercel (Recommended)
+
+This project is configured for easy deployment to Vercel. See [VERCEL_DEPLOYMENT.md](./VERCEL_DEPLOYMENT.md) for detailed instructions.
+
+Quick steps:
+1. Push your code to GitHub/GitLab/Bitbucket
+2. Import your repository in Vercel
+3. Add environment variable `VITE_API_URL` with your backend API URL
+4. Deploy!
+
+### Deploy via Lovable
+
 Simply open [Lovable](https://lovable.dev/projects/c59fbbe4-9119-45e3-9010-0018c0c66b29) and click on Share -> Publish.
 
 ## Can I connect a custom domain to my Lovable project?
