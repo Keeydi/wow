@@ -239,8 +239,10 @@ const InactiveEmployees = () => {
         body: JSON.stringify({
           employeeId: addForm.employeeId.trim(),
           firstName: addForm.firstName.trim(),
+          middleName: addForm.middleName || '',
           lastName: addForm.lastName.trim(),
-          fullName: `${addForm.firstName.trim()} ${addForm.lastName.trim()}`.trim(),
+          suffixName: '',
+          fullName: `${addForm.firstName.trim()} ${addForm.middleName || ''} ${addForm.lastName.trim()}`.trim().replace(/\s+/g, ' '),
           department: addForm.department,
           position: addForm.designation,
           email: `${addForm.employeeId.toLowerCase()}@inactive.local`,

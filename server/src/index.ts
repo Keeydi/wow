@@ -38,6 +38,81 @@ app.use(helmet());
 app.use(express.json());
 app.use('/uploads', express.static(path.join(__dirname, '../uploads')));
 
+app.get('/', (_, res) => {
+  res.json({
+    message: 'HR Hub API Server',
+    version: '1.0.0',
+    status: 'running',
+    timestamp: new Date().toISOString(),
+    endpoints: {
+      health: 'GET /health',
+      auth: {
+        login: 'POST /auth/login',
+        forgotPassword: 'POST /auth/forgot-password',
+        resetPassword: 'POST /auth/reset-password',
+        changePassword: 'POST /auth/change-password',
+      },
+      employees: {
+        list: 'GET /employees',
+        create: 'POST /employees',
+        update: 'PUT /employees/:id',
+        delete: 'DELETE /employees/:id',
+        archive: 'PATCH /employees/:id/archive',
+        resetPassword: 'PATCH /employees/:id/reset-password',
+      },
+      departments: {
+        list: 'GET /departments',
+        create: 'POST /departments',
+        update: 'PUT /departments/:id',
+        delete: 'DELETE /departments/:id',
+      },
+      designations: {
+        list: 'GET /designations',
+        create: 'POST /designations',
+        update: 'PUT /designations/:id',
+        delete: 'DELETE /designations/:id',
+      },
+      attendance: {
+        list: 'GET /attendance',
+        get: 'GET /attendance/:id',
+        create: 'POST /attendance',
+        update: 'PUT /attendance/:id',
+        delete: 'DELETE /attendance/:id',
+      },
+      calendarEvents: {
+        list: 'GET /calendar-events',
+        get: 'GET /calendar-events/:id',
+        create: 'POST /calendar-events',
+        update: 'PUT /calendar-events/:id',
+        delete: 'DELETE /calendar-events/:id',
+      },
+      documents: {
+        list: 'GET /documents',
+        get: 'GET /documents/:id',
+        create: 'POST /documents',
+        update: 'PUT /documents/:id',
+        delete: 'DELETE /documents/:id',
+      },
+      notifications: {
+        list: 'GET /notifications',
+        unreadCount: 'GET /notifications/unread-count',
+        markRead: 'PATCH /notifications/:id/read',
+        markAllRead: 'PATCH /notifications/mark-all-read',
+        delete: 'DELETE /notifications/:id',
+      },
+      settings: {
+        get: 'GET /settings',
+        update: 'PUT /settings',
+      },
+      activityLogs: {
+        list: 'GET /activity-logs',
+        recent: 'GET /activity-logs/recent',
+        create: 'POST /activity-logs',
+      },
+    },
+  });
+});
+
 app.get('/health', (_, res) => {
   res.json({ status: 'ok', timestamp: new Date().toISOString() });
 });

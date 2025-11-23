@@ -13,10 +13,10 @@ const Settings = () => {
   const [description, setDescription] = useState(
     'A web-based Human Resource Management System of The Great Plebeian College.'
   );
-  const [copyright, setCopyright] = useState('');
-  const [contactNumber, setContactNumber] = useState('+63 9837562539');
-  const [systemEmail, setSystemEmail] = useState('system@gmail.com');
-  const [address, setAddress] = useState('Alaminos City, Pangasinan');
+  const [copyright, setCopyright] = useState('© 2025 Human Resource Management System - The Great Plebeian College. All rights reserved.');
+  const [contactNumber, setContactNumber] = useState('+63 9600323101');
+  const [systemEmail, setSystemEmail] = useState('hrmsgpcalaminos@gmail.com');
+  const [address, setAddress] = useState('Gen. Montemayor St, Alaminos City, Pangasinan');
   const [logoPreview, setLogoPreview] = useState<string | null>(null);
   const [logoFile, setLogoFile] = useState<File | null>(null);
   const [isLoading, setIsLoading] = useState(true);

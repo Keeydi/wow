@@ -3,7 +3,7 @@ import { z } from 'zod';
 import bcrypt from 'bcryptjs';
 import jwt from 'jsonwebtoken';
 import crypto from 'crypto';
-import { pool } from '../db';
+import { supabase } from '../db';
 import { DbUser } from '../types';
 import { sendPasswordResetEmail } from '../utils/emailer';
 
@@ -26,34 +26,19 @@ router.post('/login', async (req, res) => {
   const { identifier, password } = parseResult.data;
 
   try {
-    // First, try to select with password_reset_required column
-    // If it fails, we'll catch and retry without it
-    let rows: DbUser[];
-    try {
-      [rows] = await pool.execute<DbUser[]>(
-        `SELECT id, username, email, employee_id, full_name, role, password_hash, password_reset_required
-         FROM users
-         WHERE username = ? OR email = ? OR employee_id = ?
-         LIMIT 1`,
-        [identifier, identifier, identifier],
-      );
-    } catch (columnError: any) {
-      // If column doesn't exist, select without it
-      if (columnError?.code === 'ER_BAD_FIELD_ERROR') {
-        console.warn('password_reset_required column not found, selecting without it');
-        [rows] = await pool.execute<DbUser[]>(
-          `SELECT id, username, email, employee_id, full_name, role, password_hash
-           FROM users
-           WHERE username = ? OR email = ? OR employee_id = ?
-           LIMIT 1`,
-          [identifier, identifier, identifier],
-        );
-      } else {
-        throw columnError;
-      }
+    // Query user by username, email, or employee_id
+    const { data: users, error } = await supabase
+      .from('users')
+      .select('id, username, email, employee_id, full_name, role, password_hash, password_reset_required')
+      .or(`username.eq.${identifier},email.eq.${identifier},employee_id.eq.${identifier}`)
+      .limit(1)
+      .single();
+
+    if (error || !users) {
+      return res.status(401).json({ message: 'Invalid credentials' });
     }
 
-    const user = rows[0];
+    const user = users as DbUser;
 
     if (!user) {
       return res.status(401).json({ message: 'Invalid credentials' });
@@ -73,10 +58,8 @@ router.post('/login', async (req, res) => {
       { expiresIn: '2h' },
     );
 
-    // Convert MySQL boolean (0/1) to JavaScript boolean, default to false if column doesn't exist
-    const passwordResetRequired = (user as any).password_reset_required !== undefined 
-      ? Boolean((user as any).password_reset_required) 
-      : false;
+    // Convert boolean, default to false if column doesn't exist
+    const passwordResetRequired = (user as any).password_reset_required ?? false;
 
     return res.json({
       token,
@@ -96,11 +79,7 @@ router.post('/login', async (req, res) => {
     console.error('Error code:', error?.code);
     console.error('Error message:', error?.message);
     
-    const errorMessage = error?.code === 'ECONNREFUSED' || error?.code === 'ER_ACCESS_DENIED_ERROR'
-      ? 'Database connection failed. Please check your database configuration.'
-      : error?.code === 'ER_BAD_DB_ERROR'
-      ? 'Database not found. Please ensure the database exists.'
-      : error?.code === 'ER_NO_SUCH_TABLE'
+    const errorMessage = error?.code === 'PGRST116' || error?.message?.includes('relation')
       ? 'Database table not found. Please run the seed script.'
       : 'Unexpected error while logging in';
     
@@ -133,12 +112,14 @@ router.post('/forgot-password', async (req, res) => {
   const { email } = parseResult.data;
 
   try {
-    const [rows] = await pool.execute<DbUser[]>(
-      `SELECT id, email, full_name FROM users WHERE email = ? LIMIT 1`,
-      [email],
-    );
+    const { data: users, error } = await supabase
+      .from('users')
+      .select('id, email, full_name')
+      .eq('email', email)
+      .limit(1)
+      .single();
 
-    const user = rows[0];
+    const user = users as DbUser | null;
 
     // Always return success to prevent email enumeration
     if (!user) {
@@ -154,12 +135,25 @@ router.post('/forgot-password', async (req, res) => {
 
     // Store token in database
     try {
-      await pool.execute(
-        `INSERT INTO password_reset_tokens (user_id, token_hash, expires_at)
-         VALUES (?, ?, ?)
-         ON DUPLICATE KEY UPDATE token_hash = ?, expires_at = ?`,
-        [user.id, tokenHash, expiresAt, tokenHash, expiresAt]
-      );
+      // Check if token exists for this user
+      const { data: existingToken } = await supabase
+        .from('password_reset_tokens')
+        .select('id')
+        .eq('user_id', user.id)
+        .single();
+
+      if (existingToken) {
+        // Update existing token
+        await supabase
+          .from('password_reset_tokens')
+          .update({ token_hash: tokenHash, expires_at: expiresAt.toISOString() })
+          .eq('user_id', user.id);
+      } else {
+        // Insert new token
+        await supabase
+          .from('password_reset_tokens')
+          .insert({ user_id: user.id, token_hash: tokenHash, expires_at: expiresAt.toISOString() });
+      }
 
       // Send email with reset link
       const emailSent = await sendPasswordResetEmail(
@@ -208,22 +202,26 @@ router.post('/reset-password', async (req, res) => {
     const tokenHash = crypto.createHash('sha256').update(token).digest('hex');
 
     // Find the token in database
-    const [tokenRows] = await pool.execute<any[]>(
-      `SELECT prt.user_id, prt.expires_at, u.email
-       FROM password_reset_tokens prt
-       JOIN users u ON prt.user_id = u.id
-       WHERE prt.token_hash = ? AND prt.used = FALSE
-       LIMIT 1`,
-      [tokenHash]
-    );
+    const { data: tokenData, error: tokenError } = await supabase
+      .from('password_reset_tokens')
+      .select('user_id, expires_at')
+      .eq('token_hash', tokenHash)
+      .eq('used', false)
+      .limit(1)
+      .single();
 
-    if (tokenRows.length === 0) {
+    if (tokenError || !tokenData) {
       return res.status(400).json({
         message: 'Invalid or expired reset token.',
       });
     }
 
-    const tokenData = tokenRows[0];
+    // Get user email
+    const { data: userData } = await supabase
+      .from('users')
+      .select('email')
+      .eq('id', tokenData.user_id)
+      .single();
 
     // Check if token is expired
     if (new Date(tokenData.expires_at) < new Date()) {
@@ -236,16 +234,16 @@ router.post('/reset-password', async (req, res) => {
     const hashedPassword = await bcrypt.hash(newPassword, 10);
 
     // Update user password
-    await pool.execute(
-      'UPDATE users SET password_hash = ? WHERE id = ?',
-      [hashedPassword, tokenData.user_id]
-    );
+    await supabase
+      .from('users')
+      .update({ password_hash: hashedPassword })
+      .eq('id', tokenData.user_id);
 
     // Mark token as used
-    await pool.execute(
-      'UPDATE password_reset_tokens SET used = TRUE WHERE token_hash = ?',
-      [tokenHash]
-    );
+    await supabase
+      .from('password_reset_tokens')
+      .update({ used: true })
+      .eq('token_hash', tokenHash);
 
     return res.json({
       message: 'Password has been reset successfully. You can now login with your new password.',
@@ -284,13 +282,13 @@ router.post('/change-password', async (req, res) => {
     const decoded = jwt.verify(token, process.env.JWT_SECRET || 'hrhub-secret') as { sub: number };
     const userId = decoded.sub;
 
-    const [rows] = await pool.execute<DbUser[]>(
-      `SELECT id, password_hash FROM users WHERE id = ? LIMIT 1`,
-      [userId],
-    );
+    const { data: user, error: userError } = await supabase
+      .from('users')
+      .select('id, password_hash, employee_id')
+      .eq('id', userId)
+      .single();
 
-    const user = rows[0];
-    if (!user) {
+    if (userError || !user) {
       return res.status(404).json({ message: 'User not found' });
     }
 
@@ -304,22 +302,17 @@ router.post('/change-password', async (req, res) => {
 
     const hashedPassword = await bcrypt.hash(newPassword, 10);
 
-    await pool.execute(
-      `UPDATE users SET password_hash = ?, password_reset_required = FALSE WHERE id = ?`,
-      [hashedPassword, userId],
-    );
+    await supabase
+      .from('users')
+      .update({ password_hash: hashedPassword, password_reset_required: false })
+      .eq('id', userId);
 
     // Also update password in employees table if user is an employee
-    const [userRows] = await pool.execute<any[]>(
-      `SELECT employee_id FROM users WHERE id = ? LIMIT 1`,
-      [userId],
-    );
-    
-    if (userRows.length > 0 && userRows[0].employee_id) {
-      await pool.execute(
-        `UPDATE employees SET password_hash = ? WHERE id = ?`,
-        [hashedPassword, userRows[0].employee_id],
-      );
+    if (user.employee_id) {
+      await supabase
+        .from('employees')
+        .update({ password_hash: hashedPassword })
+        .eq('id', user.employee_id);
     }
 
     return res.json({ message: 'Password changed successfully' });

@@ -6,7 +6,7 @@ const STORAGE_KEY = 'hrms_employees';
 const MOCK_EMPLOYEES: Employee[] = [
   {
     id: '1',
-    employeeId: 'EMP001',
+    employeeId: '25-GPC-12345',
     firstName: 'John',
     middleName: 'A.',
     lastName: 'Doe',
@@ -26,7 +26,7 @@ const MOCK_EMPLOYEES: Employee[] = [
   },
   {
     id: '2',
-    employeeId: 'EMP002',
+    employeeId: '25-GPC-12346',
     firstName: 'Jane',
     middleName: 'B.',
     lastName: 'Smith',
@@ -46,7 +46,7 @@ const MOCK_EMPLOYEES: Employee[] = [
   },
   {
     id: '3',
-    employeeId: 'EMP003',
+    employeeId: '25-GPC-12347',
     firstName: 'Mike',
     middleName: 'C.',
     lastName: 'Johnson',

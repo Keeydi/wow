@@ -1,12 +1,11 @@
 import { Router } from 'express';
 import { z } from 'zod';
-import { pool } from '../db';
-import { RowDataPacket } from 'mysql2';
+import { supabase } from '../db';
 import { logActivity, getClientIp } from '../utils/activityLogger';
 
 const router = Router();
 
-interface DbDepartment extends RowDataPacket {
+interface DbDepartment {
   id: number;
   name: string;
   created_at: string;
@@ -27,12 +26,17 @@ const mapDepartmentRow = (row: DbDepartment) => ({
 // GET all departments
 router.get('/', async (req, res) => {
   try {
-    const [rows] = await pool.execute<DbDepartment[]>(
-      'SELECT id, name, created_at, updated_at FROM departments ORDER BY name ASC'
-    );
+    const { data: rows, error } = await supabase
+      .from('departments')
+      .select('id, name, created_at, updated_at')
+      .order('name', { ascending: true });
+
+    if (error) {
+      throw error;
+    }
 
     return res.json({
-      data: rows.map(mapDepartmentRow),
+      data: (rows || []).map(mapDepartmentRow),
     });
   } catch (error) {
     console.error('Error fetching departments', error);
@@ -53,16 +57,15 @@ router.post('/', async (req, res) => {
   const { name } = parseResult.data;
 
   try {
-    const [result] = await pool.execute(
-      'INSERT INTO departments (name) VALUES (?)',
-      [name]
-    );
+    const { data: newDepartment, error: insertError } = await supabase
+      .from('departments')
+      .insert({ name })
+      .select('id, name, created_at, updated_at')
+      .single();
 
-    const insertId = (result as any).insertId;
-    const [rows] = await pool.execute<DbDepartment[]>(
-      'SELECT id, name, created_at, updated_at FROM departments WHERE id = ?',
-      [insertId]
-    );
+    if (insertError) {
+      throw insertError;
+    }
 
     // Log activity
     await logActivity({
@@ -78,10 +81,10 @@ router.post('/', async (req, res) => {
 
     return res.status(201).json({
       message: 'Department created successfully',
-      data: mapDepartmentRow(rows[0]),
+      data: mapDepartmentRow(newDepartment as DbDepartment),
     });
   } catch (error: any) {
-    if (error.code === 'ER_DUP_ENTRY') {
+    if (error.code === '23505' || error.message?.includes('duplicate')) {
       await logActivity({
         userName: req.body.createdBy || 'System',
         actionType: 'CREATE',
@@ -121,26 +124,32 @@ router.put('/:id', async (req, res) => {
   const { id } = req.params;
 
   try {
-    await pool.execute(
-      'UPDATE departments SET name = ? WHERE id = ?',
-      [name, id]
-    );
+    // Get old name for logging
+    const { data: oldDepartment } = await supabase
+      .from('departments')
+      .select('name')
+      .eq('id', id)
+      .single();
+    const oldName = oldDepartment?.name;
 
-    const [rows] = await pool.execute<DbDepartment[]>(
-      'SELECT id, name, created_at, updated_at FROM departments WHERE id = ?',
-      [id]
-    );
+    const { error: updateError } = await supabase
+      .from('departments')
+      .update({ name })
+      .eq('id', id);
 
-    if (rows.length === 0) {
-      return res.status(404).json({ message: 'Department not found' });
+    if (updateError) {
+      throw updateError;
     }
 
-    // Get old name for logging
-    const [oldRows] = await pool.execute<DbDepartment[]>(
-      'SELECT name FROM departments WHERE id = ?',
-      [id]
-    );
-    const oldName = oldRows[0]?.name;
+    const { data: rows, error: fetchError } = await supabase
+      .from('departments')
+      .select('id, name, created_at, updated_at')
+      .eq('id', id)
+      .single();
+
+    if (fetchError || !rows) {
+      return res.status(404).json({ message: 'Department not found' });
+    }
 
     // Log activity
     await logActivity({
@@ -156,10 +165,10 @@ router.put('/:id', async (req, res) => {
 
     return res.json({
       message: 'Department updated successfully',
-      data: mapDepartmentRow(rows[0]),
+      data: mapDepartmentRow(rows as DbDepartment),
     });
   } catch (error: any) {
-    if (error.code === 'ER_DUP_ENTRY') {
+    if (error.code === '23505' || error.message?.includes('duplicate')) {
       await logActivity({
         userName: req.body.updatedBy || 'System',
         actionType: 'UPDATE',
@@ -191,20 +200,20 @@ router.delete('/:id', async (req, res) => {
 
   try {
     // Get department name before deletion
-    const [deptRows] = await pool.execute<DbDepartment[]>(
-      'SELECT name FROM departments WHERE id = ?',
-      [id]
-    );
-    const deptName = deptRows[0]?.name;
+    const { data: deptData } = await supabase
+      .from('departments')
+      .select('name')
+      .eq('id', id)
+      .single();
+    const deptName = deptData?.name;
 
-    const [result] = await pool.execute(
-      'DELETE FROM departments WHERE id = ?',
-      [id]
-    );
+    const { error: deleteError } = await supabase
+      .from('departments')
+      .delete()
+      .eq('id', id);
 
-    const affectedRows = (result as any).affectedRows;
-    if (affectedRows === 0) {
-      return res.status(404).json({ message: 'Department not found' });
+    if (deleteError) {
+      throw deleteError;
     }
 
     // Log activity

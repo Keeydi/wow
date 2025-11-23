@@ -1,6 +1,4 @@
-import type { RowDataPacket } from 'mysql2';
-
-export interface DbUser extends RowDataPacket {
+export interface DbUser {
   id: number;
   username: string;
   email: string;
@@ -11,7 +9,7 @@ export interface DbUser extends RowDataPacket {
   password_reset_required: boolean;
 }
 
-export interface DbEmployee extends RowDataPacket {
+export interface DbEmployee {
   id: number;
   employee_id: string;
   first_name: string;
@@ -48,7 +46,7 @@ export interface DbEmployee extends RowDataPacket {
   updated_at: string;
 }
 
-export interface DbAttendance extends RowDataPacket {
+export interface DbAttendance {
   id: number;
   employee_id: string;
   employee_name: string;

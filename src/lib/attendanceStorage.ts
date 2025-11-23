@@ -16,7 +16,7 @@ const STORAGE_KEY = 'hrms_attendance';
 const MOCK_ATTENDANCE: Attendance[] = [
   {
     id: '1',
-    employeeId: 'EMP001',
+    employeeId: '25-GPC-12345',
     employeeName: 'John Doe',
     date: new Date().toISOString().split('T')[0],
     checkIn: '09:00',

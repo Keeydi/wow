@@ -86,13 +86,19 @@ const AttendanceList = () => {
           fetch(`${API_BASE_URL}/employees?status=active`),
         ]);
 
+        // Parse employees response once
+        let employeesData: any = null;
+        if (employeesRes.ok) {
+          employeesData = await employeesRes.json();
+          setEmployees(employeesData.data || []);
+        }
+
         if (attendanceRes.ok) {
           const attendanceData = await attendanceRes.json();
           let attendanceRecords = attendanceData.data || [];
           
           // Auto-mark absent employees if no attendance by 5 PM
-          if (employeesRes.ok) {
-            const employeesData = await employeesRes.json();
+          if (employeesData && employeesData.data) {
             const activeEmployees = employeesData.data || [];
             const today = new Date().toISOString().split('T')[0];
             const now = new Date();
@@ -132,11 +138,6 @@ const AttendanceList = () => {
           }
           
           setAttendance(attendanceRecords);
-        }
-
-        if (employeesRes.ok) {
-          const employeesData = await employeesRes.json();
-          setEmployees(employeesData.data || []);
         }
       } catch (error) {
         console.error('Error fetching data', error);

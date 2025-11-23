@@ -1,33 +1,29 @@
-import mysql from 'mysql2/promise';
+import { createClient } from '@supabase/supabase-js';
 
 const {
-  DB_HOST = 'localhost',
-  DB_PORT = '3306',
-  DB_USER = 'root',
-  DB_PASSWORD = '',
-  DB_NAME = 'hrm',
+  SUPABASE_URL,
+  SUPABASE_SERVICE_ROLE_KEY,
 } = process.env;
 
-export const pool = mysql.createPool({
-  host: DB_HOST,
-  port: Number(DB_PORT),
-  user: DB_USER,
-  password: DB_PASSWORD,
-  database: DB_NAME,
-  waitForConnections: true,
-  connectionLimit: 10,
-  queueLimit: 0,
+if (!SUPABASE_URL || !SUPABASE_SERVICE_ROLE_KEY) {
+  throw new Error('Missing Supabase environment variables. Please set SUPABASE_URL and SUPABASE_SERVICE_ROLE_KEY in server/.env');
+}
+
+export const supabase = createClient(SUPABASE_URL, SUPABASE_SERVICE_ROLE_KEY, {
+  auth: {
+    autoRefreshToken: false,
+    persistSession: false,
+  },
 });
 
 // Test database connection on startup
-pool.getConnection()
-  .then((connection) => {
+supabase.from('users').select('id').limit(1)
+  .then(() => {
     console.log('✅ Database connected successfully');
-    connection.release();
   })
   .catch((error) => {
     console.error('❌ Database connection failed:', error.message);
-    console.error('Please check your database configuration in server/.env');
-    console.error('Make sure MySQL is running and the database exists.');
+    console.error('Please check your Supabase configuration in server/.env');
+    console.error('Make sure SUPABASE_URL and SUPABASE_SERVICE_ROLE_KEY are set correctly.');
   });
 

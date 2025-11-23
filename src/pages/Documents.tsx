@@ -8,7 +8,7 @@ import { Button } from '@/components/ui/button';
 import { Label } from '@/components/ui/label';
 import { useToast } from '@/hooks/use-toast';
 import { useAuth } from '@/contexts/AuthContext';
-import { useNavigate } from 'react-router-dom';
+import { useNavigate, Navigate } from 'react-router-dom';
 
 const API_BASE_URL = import.meta.env.VITE_API_URL || 'http://localhost:4000';
 
@@ -94,7 +94,8 @@ interface Document {
 }
 
 const Documents = () => {
-  const [searchTerm, setSearchTerm] = useState('');
+  // Redirect to /documents/employee to match sidebar behavior
+  return <Navigate to="/documents/employee" replace />;
   const [selectedFolder, setSelectedFolder] = useState<null | typeof folderCards[number]>(null);
   const [showFolderModal, setShowFolderModal] = useState(false);
   const [activeModal, setActiveModal] = useState<NavCardKey | null>(null);
@@ -277,7 +278,7 @@ const Documents = () => {
   const openModal = (key: NavCardKey) => {
     // For reports, navigate to the actual report pages
     if (key === 'employeeReports') {
-      // Navigate to employee reports page
+      // Navigate to employee documents page
       navigate('/documents/employee');
       return;
     }

@@ -7,7 +7,7 @@ import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogTrigger } from 
 import { Label } from '@/components/ui/label';
 import { employeeStorage } from '@/lib/employeeStorage';
 import { useToast } from '@/hooks/use-toast';
-import { FileText, Folder, Upload, Download, Search, FileUp } from 'lucide-react';
+import { FileText, Folder, Upload, Download, Search, FileUp, Eye, Printer } from 'lucide-react';
 import { Employee } from '@/types/employee';
 import {
   DocumentTemplateKey,
@@ -532,33 +532,202 @@ const EmployeeDocuments = () => {
                     <td className="py-3 px-4 text-blue-600 font-medium">{doc.employeeId}</td>
                     <td className="py-3 px-4">
                       {doc.personalDataSheet ? (
-                        <Button size="sm" variant="ghost" className="text-blue-500">
-                          <Download className="h-4 w-4" />
-                        </Button>
+                        <div className="flex items-center gap-2">
+                          <Button 
+                            size="sm" 
+                            variant="ghost" 
+                            className="text-blue-500"
+                            onClick={() => {
+                              const fileUrl = `${API_BASE_URL}/uploads/${doc.personalDataSheet}`;
+                              window.open(fileUrl, '_blank');
+                            }}
+                          >
+                            <Eye className="h-4 w-4" />
+                          </Button>
+                          <Button 
+                            size="sm" 
+                            variant="ghost" 
+                            className="text-blue-500"
+                            onClick={() => {
+                              const fileUrl = `${API_BASE_URL}/uploads/${doc.personalDataSheet}`;
+                              const printWindow = window.open(fileUrl, '_blank');
+                              if (printWindow) {
+                                printWindow.onload = () => printWindow.print();
+                              }
+                            }}
+                          >
+                            <Printer className="h-4 w-4" />
+                          </Button>
+                          <Button 
+                            size="sm" 
+                            variant="ghost" 
+                            className="text-blue-500"
+                            onClick={() => {
+                              const fileUrl = `${API_BASE_URL}/uploads/${doc.personalDataSheet}`;
+                              const link = document.createElement('a');
+                              link.href = fileUrl;
+                              link.download = `PDS_${doc.employeeId}.pdf`;
+                              document.body.appendChild(link);
+                              link.click();
+                              document.body.removeChild(link);
+                            }}
+                          >
+                            <Download className="h-4 w-4" />
+                          </Button>
+                        </div>
                       ) : (
                         <span className="text-sm text-muted-foreground">Not uploaded</span>
                       )}
                     </td>
                     <td className="py-3 px-4">
                       {doc.serviceRecords ? (
-                        <Button size="sm" variant="ghost" className="text-blue-500">
-                          <Download className="h-4 w-4" />
-                        </Button>
-                      ) : (
-                        <span className="text-sm text-muted-foreground">Not uploaded</span>
-                      )}
-                    </td>
-                    <td className="py-3 px-4">
-                      {doc.contractOfEmployment ? (
-                        <Button size="sm" variant="ghost" className="text-blue-500">
-                          <Download className="h-4 w-4" />
-                        </Button>
+                        <div className="flex items-center gap-2">
+                          <Button 
+                            size="sm" 
+                            variant="ghost" 
+                            className="text-blue-500"
+                            onClick={() => {
+                              const fileUrl = `${API_BASE_URL}/uploads/${doc.serviceRecords}`;
+                              window.open(fileUrl, '_blank');
+                            }}
+                          >
+                            <Eye className="h-4 w-4" />
+                          </Button>
+                          <Button 
+                            size="sm" 
+                            variant="ghost" 
+                            className="text-blue-500"
+                            onClick={() => {
+                              const fileUrl = `${API_BASE_URL}/uploads/${doc.serviceRecords}`;
+                              const printWindow = window.open(fileUrl, '_blank');
+                              if (printWindow) {
+                                printWindow.onload = () => printWindow.print();
+                              }
+                            }}
+                          >
+                            <Printer className="h-4 w-4" />
+                          </Button>
+                          <Button 
+                            size="sm" 
+                            variant="ghost" 
+                            className="text-blue-500"
+                            onClick={() => {
+                              const fileUrl = `${API_BASE_URL}/uploads/${doc.serviceRecords}`;
+                              const link = document.createElement('a');
+                              link.href = fileUrl;
+                              link.download = `ServiceRecords_${doc.employeeId}.pdf`;
+                              document.body.appendChild(link);
+                              link.click();
+                              document.body.removeChild(link);
+                            }}
+                          >
+                            <Download className="h-4 w-4" />
+                          </Button>
+                        </div>
                       ) : (
                         <span className="text-sm text-muted-foreground">Not uploaded</span>
                       )}
                     </td>
                     <td className="py-3 px-4">
                       {doc.certificateOfEmployment ? (
+                        <div className="flex items-center gap-2">
+                          <Button 
+                            size="sm" 
+                            variant="ghost" 
+                            className="text-blue-500"
+                            onClick={() => {
+                              const fileUrl = `${API_BASE_URL}/uploads/${doc.certificateOfEmployment}`;
+                              window.open(fileUrl, '_blank');
+                            }}
+                          >
+                            <Eye className="h-4 w-4" />
+                          </Button>
+                          <Button 
+                            size="sm" 
+                            variant="ghost" 
+                            className="text-blue-500"
+                            onClick={() => {
+                              const fileUrl = `${API_BASE_URL}/uploads/${doc.certificateOfEmployment}`;
+                              const printWindow = window.open(fileUrl, '_blank');
+                              if (printWindow) {
+                                printWindow.onload = () => printWindow.print();
+                              }
+                            }}
+                          >
+                            <Printer className="h-4 w-4" />
+                          </Button>
+                          <Button 
+                            size="sm" 
+                            variant="ghost" 
+                            className="text-blue-500"
+                            onClick={() => {
+                              const fileUrl = `${API_BASE_URL}/uploads/${doc.certificateOfEmployment}`;
+                              const link = document.createElement('a');
+                              link.href = fileUrl;
+                              link.download = `Certificate_${doc.employeeId}.pdf`;
+                              document.body.appendChild(link);
+                              link.click();
+                              document.body.removeChild(link);
+                            }}
+                          >
+                            <Download className="h-4 w-4" />
+                          </Button>
+                        </div>
+                      ) : (
+                        <span className="text-sm text-muted-foreground">Not uploaded</span>
+                      )}
+                    </td>
+                    <td className="py-3 px-4">
+                      {doc.contractOfEmployment ? (
+                        <div className="flex items-center gap-2">
+                          <Button 
+                            size="sm" 
+                            variant="ghost" 
+                            className="text-blue-500"
+                            onClick={() => {
+                              const fileUrl = `${API_BASE_URL}/uploads/${doc.contractOfEmployment}`;
+                              window.open(fileUrl, '_blank');
+                            }}
+                          >
+                            <Eye className="h-4 w-4" />
+                          </Button>
+                          <Button 
+                            size="sm" 
+                            variant="ghost" 
+                            className="text-blue-500"
+                            onClick={() => {
+                              const fileUrl = `${API_BASE_URL}/uploads/${doc.contractOfEmployment}`;
+                              const printWindow = window.open(fileUrl, '_blank');
+                              if (printWindow) {
+                                printWindow.onload = () => printWindow.print();
+                              }
+                            }}
+                          >
+                            <Printer className="h-4 w-4" />
+                          </Button>
+                          <Button 
+                            size="sm" 
+                            variant="ghost" 
+                            className="text-blue-500"
+                            onClick={() => {
+                              const fileUrl = `${API_BASE_URL}/uploads/${doc.contractOfEmployment}`;
+                              const link = document.createElement('a');
+                              link.href = fileUrl;
+                              link.download = `Contract_${doc.employeeId}.pdf`;
+                              document.body.appendChild(link);
+                              link.click();
+                              document.body.removeChild(link);
+                            }}
+                          >
+                            <Download className="h-4 w-4" />
+                          </Button>
+                        </div>
+                      ) : (
+                        <span className="text-sm text-muted-foreground">Not uploaded</span>
+                      )}
+                    </td>
+                    <td className="py-3 px-4">
+                      {false ? (
                         <Button size="sm" variant="ghost" className="text-blue-500">
                           <Download className="h-4 w-4" />
                         </Button>

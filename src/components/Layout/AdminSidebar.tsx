@@ -37,6 +37,8 @@ import { Collapsible, CollapsibleContent, CollapsibleTrigger } from '@/component
 import { cn } from '@/lib/utils';
 import { useMemo, useState, useEffect } from 'react';
 import logo from '../../../images/logo.png';
+
+const API_BASE_URL = import.meta.env.VITE_API_URL || 'http://localhost:4000';
 import {
   AlertDialog,
   AlertDialogAction,
@@ -64,7 +66,34 @@ export function AdminSidebar() {
     logout: false,
   });
   const [logoutDialogOpen, setLogoutDialogOpen] = useState(false);
+  const [siteLogo, setSiteLogo] = useState<string | null>(null);
   const isAdmin = user?.role === 'admin';
+
+  // Fetch site logo from settings
+  useEffect(() => {
+    const fetchLogo = async () => {
+      try {
+        const response = await fetch(`${API_BASE_URL}/settings`);
+        if (response.ok) {
+          const data = await response.json();
+          const settings = data.data || {};
+          if (settings.logoUrl) {
+            setSiteLogo(`${API_BASE_URL}${settings.logoUrl}`);
+          } else {
+            setSiteLogo(null);
+          }
+        }
+      } catch (error) {
+        console.error('Error fetching logo', error);
+        setSiteLogo(null);
+      }
+    };
+
+    fetchLogo();
+    // Poll for logo updates every 5 seconds
+    const interval = setInterval(fetchLogo, 5000);
+    return () => clearInterval(interval);
+  }, []);
 
   const toggleGroup = (group: string) => {
     setOpenGroups(prev => ({ ...prev, [group]: !prev[group] }));
@@ -92,7 +121,7 @@ export function AdminSidebar() {
   const employeesActive = isPathActive(['/employees']);
   const organizationActive = isPathActive(['/organization']);
   const attendanceActive = isPathActive(['/attendance']);
-  const documentsActive = isPathActive(['/documents']);
+  const documentsActive = isPathActive(['/documents', '/documents/employee', '/documents/templates']);
   const settingsActive = isPathActive(['/settings']);
 
   // Auto-open drawer when path is active
@@ -149,19 +178,33 @@ export function AdminSidebar() {
         <SidebarContent className="bg-sidebar">
           {/* Header */}
           <div className="py-4 border-b border-sidebar-border">
-            <div className="flex items-center justify-center">
-              <div
-                className={cn(
-                  "flex items-center justify-center transition-all duration-300",
-                  collapsed ? "h-14 w-14" : "h-20 w-32"
-                )}
-              >
-                <img
-                  src={logo}
-                  alt="The Great Plebeian College"
-                  className="object-contain h-full w-full"
-                />
-              </div>
+            <div className={cn(
+              "flex items-center transition-all duration-300",
+              collapsed ? "justify-center" : "flex-col gap-2 px-2"
+            )}>
+                     <div
+                       className={cn(
+                         "flex items-center justify-center transition-all duration-300",
+                         collapsed ? "h-14 w-14" : "h-20 w-32"
+                       )}
+                     >
+                       <img
+                         src={siteLogo || logo}
+                         alt="The Great Plebeian College"
+                         className="object-contain h-full w-full"
+                         onError={(e) => {
+                           // Fallback to default logo if site logo fails to load
+                           if (siteLogo) {
+                             (e.target as HTMLImageElement).src = logo;
+                           }
+                         }}
+                       />
+                     </div>
+              {!collapsed && (
+                <p className="text-xs font-semibold text-sidebar-foreground text-center leading-tight">
+                  The Great Plebeian College
+                </p>
+              )}
             </div>
           </div>
 
@@ -345,6 +388,17 @@ export function AdminSidebar() {
                       <SidebarMenuButton
                         className="hover:bg-sidebar-accent hover:text-sidebar-accent-foreground"
                         isActive={documentsActive}
+                        onClick={(e) => {
+                          // If clicking to expand, allow default behavior
+                          // If already expanded or just navigating, go to documents/employee
+                          if (openGroups.documents && !collapsed) {
+                            e.preventDefault();
+                            navigate('/documents/employee');
+                          } else if (!collapsed) {
+                            // Navigate on first click
+                            setTimeout(() => navigate('/documents/employee'), 100);
+                          }
+                        }}
                       >
                         <div className={iconClasses(documentsActive)}>
                           <FileText className={cn("w-5 h-5", documentsActive ? "text-primary" : "text-white")} />

@@ -187,16 +187,6 @@ const Login = () => {
           <Button type="submit" className="w-full bg-primary hover:bg-primary/90" disabled={submitting}>
             {submitting ? 'Signing In...' : 'Sign In'}
           </Button>
-
-          <div className="text-center">
-            <button
-              type="button"
-              onClick={() => navigate('/forgot-password')}
-              className="text-sm text-muted-foreground hover:text-foreground"
-            >
-              Forget Password?
-            </button>
-          </div>
         </form>
 
       </div>

@@ -5,7 +5,7 @@ import { HoverCard, HoverCardTrigger, HoverCardContent } from '@/components/ui/h
 import { Badge } from '@/components/ui/badge';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
-import { Dialog, DialogContent, DialogHeader, DialogTitle } from '@/components/ui/dialog';
+import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogDescription } from '@/components/ui/dialog';
 import { Clock, Camera, X } from 'lucide-react';
 import { useToast } from '@/hooks/use-toast';
 import profilePicture from '../../images/profile_picture.png';
@@ -51,6 +51,13 @@ const EmployeeDashboard = () => {
   const [todayAttendance, setTodayAttendance] = useState<TodayAttendance | null>(null);
   const [selectedDate, setSelectedDate] = useState(new Date().toISOString().split('T')[0]);
   const [showAttendanceDialog, setShowAttendanceDialog] = useState(false);
+  const [attendanceHistory, setAttendanceHistory] = useState<Array<{
+    date: string;
+    checkIn?: string;
+    checkOut?: string;
+    status: string;
+    department?: string;
+  }>>([]);
   const [cameraIsOpen, setCameraIsOpen] = useState(false);
   const [activeCapture, setActiveCapture] = useState<'checkIn' | 'checkOut' | null>(null);
   const [capturedImage, setCapturedImage] = useState<string | null>(null);
@@ -138,7 +145,7 @@ const EmployeeDashboard = () => {
     fetchEmployeeData();
   }, [user]);
 
-  // Fetch today's attendance
+  // Fetch today's attendance with 11:59 PM reset
   useEffect(() => {
     const fetchTodayAttendance = async () => {
       if (!user?.employeeId) return;
@@ -160,17 +167,80 @@ const EmployeeDashboard = () => {
           } else {
             setTodayAttendance(null);
           }
+        } else {
+          // Handle non-OK responses
+          const errorData = await response.json().catch(() => ({ message: 'Failed to fetch attendance' }));
+          console.error('Error fetching attendance:', errorData);
+          // Don't show error toast for empty results, just set to null
+          setTodayAttendance(null);
         }
       } catch (error) {
         console.error('Error fetching attendance', error);
+        // Only show error if it's a network error, not just empty data
+        if (error instanceof TypeError && error.message.includes('Failed to fetch')) {
+          toast({
+            variant: 'destructive',
+            title: 'Error',
+            description: 'Unable to load attendance data. Please check your connection and try again.',
+          });
+        }
+        setTodayAttendance(null);
       }
     };
 
-    fetchTodayAttendance();
-    // Refresh every minute
-    const interval = setInterval(fetchTodayAttendance, 60000);
+    // Check and reset at 11:59 PM
+    const checkAndReset = () => {
+      const now = new Date();
+      const hours = now.getHours();
+      const minutes = now.getMinutes();
+      
+      // Reset at 11:59 PM
+      if (hours === 23 && minutes >= 59) {
+        setTodayAttendance(null);
+      } else {
+        fetchTodayAttendance();
+      }
+    };
+
+    // Check immediately
+    checkAndReset();
+    
+    // Check every minute
+    const interval = setInterval(checkAndReset, 60000);
     return () => clearInterval(interval);
-  }, [user]);
+  }, [user, toast]);
+
+  // Fetch attendance history for the employee
+  useEffect(() => {
+    const fetchAttendanceHistory = async () => {
+      if (!user?.employeeId || !showAttendanceDialog) return;
+      
+      try {
+        const response = await fetch(`${API_BASE_URL}/attendance?employeeId=${user.employeeId}`);
+        if (response.ok) {
+          const data = await response.json();
+          if (data.data && Array.isArray(data.data)) {
+            const history = data.data.map((att: any) => ({
+              date: att.date,
+              checkIn: att.checkIn || undefined,
+              checkOut: att.checkOut || undefined,
+              status: att.status || 'absent',
+              department: employeeData?.department || undefined,
+            }));
+            setAttendanceHistory(history.sort((a: any, b: any) => 
+              new Date(b.date).getTime() - new Date(a.date).getTime()
+            ));
+          }
+        }
+      } catch (error) {
+        console.error('Error fetching attendance history', error);
+      }
+    };
+
+    if (showAttendanceDialog) {
+      fetchAttendanceHistory();
+    }
+  }, [user?.employeeId, showAttendanceDialog, employeeData]);
 
   useEffect(() => {
     fetchCalendarEvents();
@@ -582,7 +652,12 @@ const EmployeeDashboard = () => {
                   // Fetch attendance for selected date
                   if (user?.employeeId && e.target.value) {
                     fetch(`${API_BASE_URL}/attendance?employeeId=${user.employeeId}&date=${e.target.value}`)
-                      .then(res => res.json())
+                      .then(res => {
+                        if (res.ok) {
+                          return res.json();
+                        }
+                        throw new Error('Failed to fetch attendance');
+                      })
                       .then(data => {
                         if (data.data && data.data.length > 0) {
                           const att = data.data[0];
@@ -597,7 +672,18 @@ const EmployeeDashboard = () => {
                           setTodayAttendance(null);
                         }
                       })
-                      .catch(err => console.error('Error fetching attendance', err));
+                      .catch(err => {
+                        console.error('Error fetching attendance', err);
+                        setTodayAttendance(null);
+                        // Only show error for actual network errors
+                        if (err instanceof TypeError && err.message.includes('Failed to fetch')) {
+                          toast({
+                            variant: 'destructive',
+                            title: 'Error',
+                            description: 'Unable to load attendance data. Please check your connection and try again.',
+                          });
+                        }
+                      });
                   }
                 }}
                 max={new Date().toISOString().split('T')[0]}
@@ -694,6 +780,52 @@ const EmployeeDashboard = () => {
                 </Button>
               </div>
             )}
+
+            {/* Attendance History List */}
+            <div className="border rounded-lg p-4 space-y-4">
+              <h3 className="font-semibold">My Attendance History</h3>
+              <div className="max-h-64 overflow-y-auto space-y-2">
+                {attendanceHistory.length === 0 ? (
+                  <p className="text-sm text-muted-foreground text-center py-4">No attendance records found</p>
+                ) : (
+                  attendanceHistory.map((record, index) => (
+                    <div key={index} className="border-b pb-2 last:border-b-0">
+                      <div className="flex items-center justify-between">
+                        <div className="flex-1">
+                          <p className="text-sm font-medium">
+                            {new Date(record.date).toLocaleDateString('en-US', {
+                              weekday: 'short',
+                              year: 'numeric',
+                              month: 'short',
+                              day: 'numeric'
+                            })}
+                          </p>
+                          <div className="flex gap-4 mt-1">
+                            <p className="text-xs text-muted-foreground">
+                              Sign In: {record.checkIn || 'N/A'}
+                            </p>
+                            <p className="text-xs text-muted-foreground">
+                              Sign Out: {record.checkOut || 'N/A'}
+                            </p>
+                          </div>
+                          {record.department && (
+                            <p className="text-xs text-muted-foreground mt-1">
+                              Department: {record.department}
+                            </p>
+                          )}
+                        </div>
+                        <Badge 
+                          variant={record.status === 'present' ? 'default' : record.status === 'late' ? 'destructive' : 'secondary'}
+                          className="ml-2"
+                        >
+                          {record.status.charAt(0).toUpperCase() + record.status.slice(1)}
+                        </Badge>
+                      </div>
+                    </div>
+                  ))
+                )}
+              </div>
+            </div>
           </div>
         </DialogContent>
       </Dialog>

@@ -481,7 +481,7 @@ const Dashboard = () => {
 
             <Card 
               className="hover:shadow-md transition-shadow cursor-pointer"
-              onClick={() => navigate('/documents')}
+              onClick={() => navigate('/documents/employee')}
             >
               <CardContent className="pt-6">
                 <div className="flex flex-col items-center text-center space-y-2">

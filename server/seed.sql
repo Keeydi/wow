@@ -263,10 +263,12 @@ CREATE TABLE IF NOT EXISTS settings (
 INSERT INTO settings (`key`, `value`) VALUES
   ('siteTitle', 'Human Resource Management System'),
   ('description', 'A web-based Human Resource Management System of The Great Plebeian College.'),
-  ('copyright', ''),
-  ('contactNumber', '+63 9837562539'),
-  ('systemEmail', 'system@gmail.com'),
-  ('address', 'Alaminos City, Pangasinan'),
+  ('copyright', '© 2025 Human Resource Management System - The Great Plebeian College. All rights reserved.'),
+  ('contactNumber', '+63 9600323101'),
+  ('systemEmail', 'hrmsgpcalaminos@gmail.com'),
+  ('address', 'Gen. Montemayor St, Alaminos City, Pangasinan'),
+  ('latitude', '16.15918'),
+  ('longitude', '119.98014'),
   ('logoUrl', NULL)
 ON DUPLICATE KEY UPDATE `value` = VALUES(`value`);
 

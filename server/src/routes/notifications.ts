@@ -1,10 +1,9 @@
 import { Router } from 'express';
-import { pool } from '../db';
-import { RowDataPacket } from 'mysql2';
+import { supabase } from '../db';
 
 const router = Router();
 
-interface DbNotification extends RowDataPacket {
+interface DbNotification {
   id: number;
   title: string;
   description: string | null;
@@ -29,19 +28,25 @@ router.get('/', async (req, res) => {
   try {
     const { unreadOnly } = req.query;
     
-    let query = 'SELECT id, title, description, type, related_id, is_read, created_at FROM notifications';
-    const params: any[] = [];
+    let query = supabase
+      .from('notifications')
+      .select('id, title, description, type, related_id, is_read, created_at')
+      .order('is_read', { ascending: true })
+      .order('created_at', { ascending: false })
+      .limit(50);
 
     if (unreadOnly === 'true') {
-      query += ' WHERE is_read = FALSE';
+      query = query.eq('is_read', false);
     }
 
-    query += ' ORDER BY is_read ASC, created_at DESC LIMIT 50';
+    const { data: rows, error } = await query;
 
-    const [rows] = await pool.execute<DbNotification[]>(query, params);
+    if (error) {
+      throw error;
+    }
 
     return res.json({
-      data: rows.map(mapNotificationRow),
+      data: (rows || []).map(mapNotificationRow),
     });
   } catch (error) {
     console.error('Error fetching notifications', error);
@@ -52,12 +57,17 @@ router.get('/', async (req, res) => {
 // GET unread count
 router.get('/unread-count', async (req, res) => {
   try {
-    const [rows] = await pool.execute<RowDataPacket[]>(
-      'SELECT COUNT(*) as count FROM notifications WHERE is_read = FALSE'
-    );
+    const { count, error } = await supabase
+      .from('notifications')
+      .select('*', { count: 'exact', head: true })
+      .eq('is_read', false);
+
+    if (error) {
+      throw error;
+    }
 
     return res.json({
-      count: rows[0]?.count || 0,
+      count: count || 0,
     });
   } catch (error) {
     console.error('Error fetching unread count', error);
@@ -70,20 +80,28 @@ router.patch('/:id/read', async (req, res) => {
   const { id } = req.params;
 
   try {
-    await pool.execute('UPDATE notifications SET is_read = TRUE WHERE id = ?', [id]);
+    const { error: updateError } = await supabase
+      .from('notifications')
+      .update({ is_read: true })
+      .eq('id', id);
 
-    const [rows] = await pool.execute<DbNotification[]>(
-      'SELECT id, title, description, type, related_id, is_read, created_at FROM notifications WHERE id = ?',
-      [id]
-    );
+    if (updateError) {
+      throw updateError;
+    }
 
-    if (rows.length === 0) {
+    const { data: notificationData, error: fetchError } = await supabase
+      .from('notifications')
+      .select('id, title, description, type, related_id, is_read, created_at')
+      .eq('id', id)
+      .single();
+
+    if (fetchError || !notificationData) {
       return res.status(404).json({ message: 'Notification not found' });
     }
 
     return res.json({
       message: 'Notification marked as read',
-      data: mapNotificationRow(rows[0]),
+      data: mapNotificationRow(notificationData as DbNotification),
     });
   } catch (error) {
     console.error('Error marking notification as read', error);
@@ -94,7 +112,14 @@ router.patch('/:id/read', async (req, res) => {
 // PATCH mark all as read
 router.patch('/mark-all-read', async (req, res) => {
   try {
-    await pool.execute('UPDATE notifications SET is_read = TRUE WHERE is_read = FALSE');
+    const { error } = await supabase
+      .from('notifications')
+      .update({ is_read: true })
+      .eq('is_read', false);
+
+    if (error) {
+      throw error;
+    }
 
     return res.json({
       message: 'All notifications marked as read',
@@ -110,10 +135,13 @@ router.delete('/:id', async (req, res) => {
   const { id } = req.params;
 
   try {
-    const [result] = await pool.execute('DELETE FROM notifications WHERE id = ?', [id]);
+    const { error: deleteError } = await supabase
+      .from('notifications')
+      .delete()
+      .eq('id', id);
 
-    if ((result as any).affectedRows === 0) {
-      return res.status(404).json({ message: 'Notification not found' });
+    if (deleteError) {
+      throw deleteError;
     }
 
     return res.json({

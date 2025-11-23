@@ -1,4 +1,4 @@
-import { pool } from '../db';
+import { supabase } from '../db';
 
 export interface ActivityLogData {
   userId?: number | null;
@@ -15,24 +15,20 @@ export interface ActivityLogData {
 
 export const logActivity = async (data: ActivityLogData): Promise<void> => {
   try {
-    await pool.execute(
-      `INSERT INTO activity_logs 
-        (user_id, user_name, action_type, resource_type, resource_id, resource_name,
-         description, ip_address, status, metadata)
-       VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
-      [
-        data.userId || null,
-        data.userName,
-        data.actionType,
-        data.resourceType,
-        data.resourceId || null,
-        data.resourceName || null,
-        data.description || null,
-        data.ipAddress || null,
-        data.status || 'success',
-        data.metadata ? JSON.stringify(data.metadata) : null,
-      ]
-    );
+    await supabase
+      .from('activity_logs')
+      .insert({
+        user_id: data.userId || null,
+        user_name: data.userName,
+        action_type: data.actionType,
+        resource_type: data.resourceType,
+        resource_id: data.resourceId || null,
+        resource_name: data.resourceName || null,
+        description: data.description || null,
+        ip_address: data.ipAddress || null,
+        status: data.status || 'success',
+        metadata: data.metadata ? JSON.stringify(data.metadata) : null,
+      });
   } catch (error) {
     // Don't throw error - logging should not break the main operation
     console.error('Error logging activity:', error);

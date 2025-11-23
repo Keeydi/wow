@@ -1,12 +1,11 @@
 import { Router } from 'express';
 import { z } from 'zod';
-import { pool } from '../db';
-import { RowDataPacket } from 'mysql2';
+import { supabase } from '../db';
 import { logActivity, getClientIp } from '../utils/activityLogger';
 
 const router = Router();
 
-interface DbDesignation extends RowDataPacket {
+interface DbDesignation {
   id: number;
   name: string;
   created_at: string;
@@ -27,12 +26,17 @@ const mapDesignationRow = (row: DbDesignation) => ({
 // GET all designations
 router.get('/', async (req, res) => {
   try {
-    const [rows] = await pool.execute<DbDesignation[]>(
-      'SELECT id, name, created_at, updated_at FROM designations ORDER BY name ASC'
-    );
+    const { data: rows, error } = await supabase
+      .from('designations')
+      .select('id, name, created_at, updated_at')
+      .order('name', { ascending: true });
+
+    if (error) {
+      throw error;
+    }
 
     return res.json({
-      data: rows.map(mapDesignationRow),
+      data: (rows || []).map(mapDesignationRow),
     });
   } catch (error) {
     console.error('Error fetching designations', error);
@@ -53,16 +57,15 @@ router.post('/', async (req, res) => {
   const { name } = parseResult.data;
 
   try {
-    const [result] = await pool.execute(
-      'INSERT INTO designations (name) VALUES (?)',
-      [name]
-    );
+    const { data: newDesignation, error: insertError } = await supabase
+      .from('designations')
+      .insert({ name })
+      .select('id, name, created_at, updated_at')
+      .single();
 
-    const insertId = (result as any).insertId;
-    const [rows] = await pool.execute<DbDesignation[]>(
-      'SELECT id, name, created_at, updated_at FROM designations WHERE id = ?',
-      [insertId]
-    );
+    if (insertError) {
+      throw insertError;
+    }
 
     // Log activity
     await logActivity({
@@ -78,10 +81,10 @@ router.post('/', async (req, res) => {
 
     return res.status(201).json({
       message: 'Designation created successfully',
-      data: mapDesignationRow(rows[0]),
+      data: mapDesignationRow(newDesignation as DbDesignation),
     });
   } catch (error: any) {
-    if (error.code === 'ER_DUP_ENTRY') {
+    if (error.code === '23505' || error.message?.includes('duplicate')) {
       await logActivity({
         userName: req.body.createdBy || 'System',
         actionType: 'CREATE',
@@ -121,26 +124,32 @@ router.put('/:id', async (req, res) => {
   const { id } = req.params;
 
   try {
-    await pool.execute(
-      'UPDATE designations SET name = ? WHERE id = ?',
-      [name, id]
-    );
+    // Get old name for logging
+    const { data: oldDesignation } = await supabase
+      .from('designations')
+      .select('name')
+      .eq('id', id)
+      .single();
+    const oldName = oldDesignation?.name;
 
-    const [rows] = await pool.execute<DbDesignation[]>(
-      'SELECT id, name, created_at, updated_at FROM designations WHERE id = ?',
-      [id]
-    );
+    const { error: updateError } = await supabase
+      .from('designations')
+      .update({ name })
+      .eq('id', id);
 
-    if (rows.length === 0) {
-      return res.status(404).json({ message: 'Designation not found' });
+    if (updateError) {
+      throw updateError;
     }
 
-    // Get old name for logging
-    const [oldRows] = await pool.execute<DbDesignation[]>(
-      'SELECT name FROM designations WHERE id = ?',
-      [id]
-    );
-    const oldName = oldRows[0]?.name;
+    const { data: rows, error: fetchError } = await supabase
+      .from('designations')
+      .select('id, name, created_at, updated_at')
+      .eq('id', id)
+      .single();
+
+    if (fetchError || !rows) {
+      return res.status(404).json({ message: 'Designation not found' });
+    }
 
     // Log activity
     await logActivity({
@@ -156,10 +165,10 @@ router.put('/:id', async (req, res) => {
 
     return res.json({
       message: 'Designation updated successfully',
-      data: mapDesignationRow(rows[0]),
+      data: mapDesignationRow(rows as DbDesignation),
     });
   } catch (error: any) {
-    if (error.code === 'ER_DUP_ENTRY') {
+    if (error.code === '23505' || error.message?.includes('duplicate')) {
       await logActivity({
         userName: req.body.updatedBy || 'System',
         actionType: 'UPDATE',
@@ -191,20 +200,20 @@ router.delete('/:id', async (req, res) => {
 
   try {
     // Get designation name before deletion
-    const [desigRows] = await pool.execute<DbDesignation[]>(
-      'SELECT name FROM designations WHERE id = ?',
-      [id]
-    );
-    const desigName = desigRows[0]?.name;
+    const { data: desigData } = await supabase
+      .from('designations')
+      .select('name')
+      .eq('id', id)
+      .single();
+    const desigName = desigData?.name;
 
-    const [result] = await pool.execute(
-      'DELETE FROM designations WHERE id = ?',
-      [id]
-    );
+    const { error: deleteError } = await supabase
+      .from('designations')
+      .delete()
+      .eq('id', id);
 
-    const affectedRows = (result as any).affectedRows;
-    if (affectedRows === 0) {
-      return res.status(404).json({ message: 'Designation not found' });
+    if (deleteError) {
+      throw deleteError;
     }
 
     // Log activity

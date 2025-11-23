@@ -1,7 +1,7 @@
 import { Router } from 'express';
 import { z } from 'zod';
 import bcrypt from 'bcryptjs';
-import { pool } from '../db';
+import { supabase } from '../db';
 import { DbEmployee } from '../types';
 import { logActivity, getClientIp } from '../utils/activityLogger';
 
@@ -103,36 +103,27 @@ router.get('/', async (req, res) => {
   const { status, employeeId } = req.query;
 
   try {
-    const conditions: string[] = [];
-    const params: any[] = [];
+    let query = supabase
+      .from('employees')
+      .select('id, employee_id, first_name, middle_name, last_name, suffix_name, full_name, department, position, email, phone, date_of_birth, address, gender, civil_status, date_hired, date_of_leaving, employment_type, role, sss_number, pagibig_number, tin_number, emergency_contact, educational_background, signature_file, pds_file, service_record_file, registered_face_file, status, archived_reason, archived_at, created_at, updated_at')
+      .order('created_at', { ascending: false });
 
     if (status === 'active' || status === 'inactive') {
-      conditions.push('status = ?');
-      params.push(status);
+      query = query.eq('status', status);
     }
 
     if (employeeId && typeof employeeId === 'string') {
-      conditions.push('employee_id = ?');
-      params.push(employeeId);
+      query = query.eq('employee_id', employeeId);
     }
 
-    const whereClause = conditions.length > 0 ? `WHERE ${conditions.join(' AND ')}` : '';
+    const { data: rows, error } = await query;
 
-    const [rows] = await pool.execute<DbEmployee[]>(
-      `SELECT id, employee_id, first_name, middle_name, last_name, suffix_name, full_name, department, position, email, phone,
-              date_of_birth, address, gender, civil_status, date_hired, date_of_leaving,
-              employment_type, role, sss_number, pagibig_number, tin_number,
-              emergency_contact, educational_background, signature_file, pds_file,
-              service_record_file, registered_face_file, status,
-              archived_reason, archived_at, created_at, updated_at
-         FROM employees
-         ${whereClause}
-         ORDER BY created_at DESC`,
-      params,
-    );
+    if (error) {
+      throw error;
+    }
 
     return res.json({
-      data: rows.map(mapEmployeeRow),
+      data: (rows || []).map(mapEmployeeRow),
     });
   } catch (error) {
     console.error('Error fetching employees', error);
@@ -189,102 +180,82 @@ router.post('/', async (req, res) => {
       .trim();
 
   try {
-    const connection = await pool.getConnection();
-    let insertId: number | null = null;
-    try {
-      await connection.beginTransaction();
+    const hashedPassword = await bcrypt.hash(password, 10);
 
-      const hashedPassword = await bcrypt.hash(password, 10);
+    // Insert employee
+    const { data: employeeData, error: employeeError } = await supabase
+      .from('employees')
+      .insert({
+        employee_id: employeeId,
+        first_name: firstName,
+        middle_name: middleName,
+        last_name: lastName,
+        suffix_name: suffixName,
+        full_name: normalizedFullName,
+        department,
+        position,
+        email,
+        phone,
+        date_of_birth: dateOfBirth || null,
+        address: address || null,
+        gender: gender || null,
+        civil_status: civilStatus || null,
+        date_hired: dateHired,
+        date_of_leaving: dateOfLeaving || null,
+        employment_type: employmentType,
+        role: role || null,
+        sss_number: sssNumber || null,
+        pagibig_number: pagibigNumber || null,
+        tin_number: tinNumber || null,
+        emergency_contact: emergencyContact || null,
+        educational_background: educationalBackground || null,
+        signature_file: signatureFile || null,
+        pds_file: pdsFile || null,
+        service_record_file: serviceRecordFile || null,
+        registered_face_file: registeredFaceFile || null,
+        password_hash: hashedPassword,
+        status: 'active',
+      })
+      .select('id')
+      .single();
 
-      const [result] = await connection.execute(
-        `INSERT INTO employees
-          (employee_id, first_name, middle_name, last_name, suffix_name, full_name, department, position, email, phone,
-           date_of_birth, address, gender, civil_status, date_hired, date_of_leaving,
-           employment_type, role, sss_number, pagibig_number, tin_number,
-           emergency_contact, educational_background, signature_file, pds_file,
-           service_record_file, registered_face_file, password_hash, status)
-         VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, 'active')`,
-        [
-          employeeId,
-          firstName,
-          middleName,
-          lastName,
-          suffixName,
-          normalizedFullName,
-          department,
-          position,
+    if (employeeError) {
+      throw employeeError;
+    }
+
+    const insertId = employeeData?.id;
+
+    // Check if user already exists
+    const { data: existingUsers } = await supabase
+      .from('users')
+      .select('id')
+      .or(`username.eq.${employeeId},email.eq.${email},employee_id.eq.${employeeId}`)
+      .limit(1);
+
+    if (existingUsers && existingUsers.length > 0) {
+      // Update existing user
+      await supabase
+        .from('users')
+        .update({
           email,
-          phone,
-          dateOfBirth || null,
-          address || null,
-          gender || null,
-          civilStatus || null,
-          dateHired,
-          dateOfLeaving || null,
-          employmentType,
-          role || null,
-          sssNumber || null,
-          pagibigNumber || null,
-          tinNumber || null,
-          emergencyContact || null,
-          educationalBackground || null,
-          signatureFile || null,
-          pdsFile || null,
-          serviceRecordFile || null,
-          registeredFaceFile || null,
-          hashedPassword,
-        ],
-      );
-
-      insertId = (result as any).insertId;
-
-      // Check if user already exists
-      const [existingUsers] = await connection.execute<any[]>(
-        'SELECT id, username, email, employee_id FROM users WHERE username = ? OR email = ? OR employee_id = ?',
-        [employeeId, email, employeeId]
-      );
-
-      if (existingUsers.length > 0) {
-        // Update existing user
-        await connection.execute(
-          `UPDATE users 
-           SET email = ?, employee_id = ?, full_name = ?, role = ?, password_hash = ?
-           WHERE id = ?`,
-          [
-            email,
-            employeeId,
-            normalizedFullName,
-            normalizeRole(role),
-            hashedPassword,
-            existingUsers[0].id,
-          ],
-        );
-      } else {
-        // Create new user
-        await connection.execute(
-          `INSERT INTO users (username, email, employee_id, full_name, role, password_hash)
-           VALUES (?, ?, ?, ?, ?, ?)`,
-          [
-            employeeId,
-            email,
-            employeeId,
-            normalizedFullName,
-            normalizeRole(role),
-            hashedPassword,
-          ],
-        );
-      }
-
-      await connection.commit();
-    } catch (transactionError) {
-      try {
-        await connection.rollback();
-      } catch (rollbackError) {
-        console.error('Rollback failed while creating employee', rollbackError);
-      }
-      throw transactionError;
-    } finally {
-      connection.release();
+          employee_id: employeeId,
+          full_name: normalizedFullName,
+          role: normalizeRole(role),
+          password_hash: hashedPassword,
+        })
+        .eq('id', existingUsers[0].id);
+    } else {
+      // Create new user
+      await supabase
+        .from('users')
+        .insert({
+          username: employeeId,
+          email,
+          employee_id: employeeId,
+          full_name: normalizedFullName,
+          role: normalizeRole(role),
+          password_hash: hashedPassword,
+        });
     }
 
     // Log activity
@@ -412,123 +383,92 @@ router.put('/:id', async (req, res) => {
       .trim();
 
   try {
-    const connection = await pool.getConnection();
-    let updatedEmployee: DbEmployee | null = null;
-    try {
-      await connection.beginTransaction();
+    const hashedPassword = password ? await bcrypt.hash(password, 10) : null;
 
-      const hashedPassword = password ? await bcrypt.hash(password, 10) : null;
+    // Build update object with only provided fields
+    const updateData: any = {};
+    if (employeeId !== undefined) updateData.employee_id = employeeId;
+    if (firstName !== undefined) updateData.first_name = firstName;
+    if (middleName !== undefined) updateData.middle_name = middleName;
+    if (lastName !== undefined) updateData.last_name = lastName;
+    if (suffixName !== undefined) updateData.suffix_name = suffixName;
+    if (derivedFullName) updateData.full_name = derivedFullName;
+    if (department !== undefined) updateData.department = department;
+    if (position !== undefined) updateData.position = position;
+    if (email !== undefined) updateData.email = email;
+    if (phone !== undefined) updateData.phone = phone;
+    if (dateOfBirth !== undefined) updateData.date_of_birth = dateOfBirth;
+    if (address !== undefined) updateData.address = address;
+    if (gender !== undefined) updateData.gender = gender;
+    if (civilStatus !== undefined) updateData.civil_status = civilStatus;
+    if (dateHired !== undefined) updateData.date_hired = dateHired;
+    if (dateOfLeaving !== undefined) updateData.date_of_leaving = dateOfLeaving;
+    if (employmentType !== undefined) updateData.employment_type = employmentType;
+    if (role !== undefined) updateData.role = role;
+    if (sssNumber !== undefined) updateData.sss_number = sssNumber;
+    if (pagibigNumber !== undefined) updateData.pagibig_number = pagibigNumber;
+    if (tinNumber !== undefined) updateData.tin_number = tinNumber;
+    if (emergencyContact !== undefined) updateData.emergency_contact = emergencyContact;
+    if (educationalBackground !== undefined) updateData.educational_background = educationalBackground;
+    if (signatureFile !== undefined) updateData.signature_file = signatureFile;
+    if (pdsFile !== undefined) updateData.pds_file = pdsFile;
+    if (serviceRecordFile !== undefined) updateData.service_record_file = serviceRecordFile;
+    if (registeredFaceFile !== undefined) updateData.registered_face_file = registeredFaceFile;
+    if (hashedPassword) updateData.password_hash = hashedPassword;
+    if (status !== undefined) updateData.status = status;
 
-      await connection.execute(
-        `UPDATE employees
-           SET employee_id = COALESCE(?, employee_id),
-               first_name = COALESCE(?, first_name),
-               middle_name = COALESCE(?, middle_name),
-               last_name = COALESCE(?, last_name),
-               suffix_name = COALESCE(?, suffix_name),
-               full_name = COALESCE(?, full_name),
-               department = COALESCE(?, department),
-               position = COALESCE(?, position),
-               email = COALESCE(?, email),
-               phone = COALESCE(?, phone),
-               date_of_birth = COALESCE(?, date_of_birth),
-               address = COALESCE(?, address),
-               gender = COALESCE(?, gender),
-               civil_status = COALESCE(?, civil_status),
-               date_hired = COALESCE(?, date_hired),
-               date_of_leaving = COALESCE(?, date_of_leaving),
-               employment_type = COALESCE(?, employment_type),
-               role = COALESCE(?, role),
-               sss_number = COALESCE(?, sss_number),
-               pagibig_number = COALESCE(?, pagibig_number),
-               tin_number = COALESCE(?, tin_number),
-               emergency_contact = COALESCE(?, emergency_contact),
-               educational_background = COALESCE(?, educational_background),
-               signature_file = COALESCE(?, signature_file),
-               pds_file = COALESCE(?, pds_file),
-               service_record_file = COALESCE(?, service_record_file),
-               registered_face_file = COALESCE(?, registered_face_file),
-               password_hash = COALESCE(?, password_hash),
-               status = COALESCE(?, status)
-         WHERE id = ?`,
-        [
-          employeeId ?? null,
-          firstName ?? null,
-          middleName ?? null,
-          lastName ?? null,
-          suffixName ?? null,
-          derivedFullName || null,
-          department ?? null,
-          position ?? null,
-          email ?? null,
-          phone ?? null,
-          dateOfBirth ?? null,
-          address ?? null,
-          gender ?? null,
-          civilStatus ?? null,
-          dateHired ?? null,
-          dateOfLeaving ?? null,
-          employmentType ?? null,
-          role ?? null,
-          sssNumber ?? null,
-          pagibigNumber ?? null,
-          tinNumber ?? null,
-          emergencyContact ?? null,
-          educationalBackground ?? null,
-          signatureFile ?? null,
-          pdsFile ?? null,
-          serviceRecordFile ?? null,
-          registeredFaceFile ?? null,
-          hashedPassword ?? null,
-          status ?? null,
-          req.params.id,
-        ],
-      );
+    const { error: updateError } = await supabase
+      .from('employees')
+      .update(updateData)
+      .eq('id', req.params.id);
 
-      const [employeeRows] = await connection.execute<DbEmployee[]>(
-        `SELECT id, full_name, employee_id, email, role, password_hash 
-         FROM employees 
-         WHERE id = ?`,
-        [req.params.id],
-      );
-      updatedEmployee = employeeRows[0] || null;
+    if (updateError) {
+      throw updateError;
+    }
 
-      if (!updatedEmployee) {
-        await connection.rollback();
-        return res.status(404).json({ message: 'Employee not found' });
+    const { data: updatedEmployee, error: fetchError } = await supabase
+      .from('employees')
+      .select('id, full_name, employee_id, email, role, password_hash')
+      .eq('id', req.params.id)
+      .single();
+
+    if (fetchError || !updatedEmployee) {
+      return res.status(404).json({ message: 'Employee not found' });
+    }
+
+    if (updatedEmployee.password_hash) {
+      // Check if user exists
+      const { data: existingUser } = await supabase
+        .from('users')
+        .select('id')
+        .eq('username', updatedEmployee.employee_id)
+        .single();
+
+      if (existingUser) {
+        // Update existing user
+        await supabase
+          .from('users')
+          .update({
+            email: updatedEmployee.email,
+            employee_id: updatedEmployee.employee_id,
+            full_name: updatedEmployee.full_name,
+            role: normalizeRole(updatedEmployee.role),
+            password_hash: updatedEmployee.password_hash,
+          })
+          .eq('id', existingUser.id);
+      } else {
+        // Insert new user
+        await supabase
+          .from('users')
+          .insert({
+            username: updatedEmployee.employee_id,
+            email: updatedEmployee.email,
+            employee_id: updatedEmployee.employee_id,
+            full_name: updatedEmployee.full_name,
+            role: normalizeRole(updatedEmployee.role),
+            password_hash: updatedEmployee.password_hash,
+          });
       }
-
-      if (updatedEmployee.password_hash) {
-        await connection.execute(
-          `INSERT INTO users (username, email, employee_id, full_name, role, password_hash)
-           VALUES (?, ?, ?, ?, ?, ?)
-           ON DUPLICATE KEY UPDATE
-             email = VALUES(email),
-             employee_id = VALUES(employee_id),
-             full_name = VALUES(full_name),
-             role = VALUES(role),
-             password_hash = VALUES(password_hash)`,
-          [
-            updatedEmployee.employee_id,
-            updatedEmployee.email,
-            updatedEmployee.employee_id,
-            updatedEmployee.full_name,
-            normalizeRole(updatedEmployee.role),
-            updatedEmployee.password_hash,
-          ],
-        );
-      }
-
-      await connection.commit();
-    } catch (transactionError) {
-      try {
-        await connection.rollback();
-      } catch (rollbackError) {
-        console.error('Rollback failed while updating employee', rollbackError);
-      }
-      throw transactionError;
-    } finally {
-      connection.release();
     }
 
     // Log activity
@@ -573,21 +513,22 @@ router.patch('/:id/archive', async (req, res) => {
   }
 
   try {
-    await pool.execute(
-      `UPDATE employees
-         SET status = 'inactive',
-             archived_reason = ?,
-             archived_at = NOW()
-       WHERE id = ?`,
-      [parseResult.data.reason, req.params.id],
-    );
+    await supabase
+      .from('employees')
+      .update({
+        status: 'inactive',
+        archived_reason: parseResult.data.reason,
+        archived_at: new Date().toISOString(),
+      })
+      .eq('id', req.params.id);
 
     // Get employee info for logging
-    const [employeeRows] = await pool.execute<DbEmployee[]>(
-      'SELECT full_name, employee_id FROM employees WHERE id = ?',
-      [req.params.id]
-    );
-    const employee = employeeRows[0];
+    const { data: employeeData } = await supabase
+      .from('employees')
+      .select('full_name, employee_id')
+      .eq('id', req.params.id)
+      .single();
+    const employee = employeeData as { full_name: string; employee_id: string } | null;
 
     // Log activity
     await logActivity({
@@ -627,24 +568,25 @@ router.delete('/:id', async (req, res) => {
 
   try {
     // Get employee info before deletion
-    const [employeeRows] = await pool.execute<DbEmployee[]>(
-      'SELECT full_name, employee_id FROM employees WHERE id = ?',
-      [id]
-    );
-    const employee = employeeRows[0];
+    const { data: employeeData } = await supabase
+      .from('employees')
+      .select('full_name, employee_id')
+      .eq('id', id)
+      .single();
 
-    if (!employee) {
+    if (!employeeData) {
       return res.status(404).json({ message: 'Employee not found' });
     }
 
-    const [result] = await pool.execute(
-      'DELETE FROM employees WHERE id = ?',
-      [id]
-    );
+    const employee = employeeData as { full_name: string; employee_id: string };
 
-    const affectedRows = (result as any).affectedRows;
-    if (affectedRows === 0) {
-      return res.status(404).json({ message: 'Employee not found' });
+    const { error: deleteError } = await supabase
+      .from('employees')
+      .delete()
+      .eq('id', id);
+
+    if (deleteError) {
+      throw deleteError;
     }
 
     // Log activity
@@ -685,33 +627,33 @@ router.patch('/:id/reset-password', async (req, res) => {
     const employeeId = req.params.id;
 
     // Get employee info
-    const [employeeRows] = await pool.execute<DbEmployee[]>(
-      `SELECT id, employee_id, email, full_name FROM employees WHERE id = ? LIMIT 1`,
-      [employeeId],
-    );
+    const { data: employeeData, error: fetchError } = await supabase
+      .from('employees')
+      .select('id, employee_id, email, full_name')
+      .eq('id', employeeId)
+      .single();
 
-    const employee = employeeRows[0];
-    if (!employee) {
+    if (fetchError || !employeeData) {
       return res.status(404).json({ message: 'Employee not found' });
     }
+
+    const employee = employeeData as DbEmployee;
 
     // Generate a temporary password (in production, use a secure random generator)
     const tempPassword = `Temp${employee.employee_id}${Date.now().toString().slice(-4)}`;
     const hashedPassword = await bcrypt.hash(tempPassword, 10);
 
     // Update password in employees table
-    await pool.execute(
-      `UPDATE employees SET password_hash = ? WHERE id = ?`,
-      [hashedPassword, employeeId],
-    );
+    await supabase
+      .from('employees')
+      .update({ password_hash: hashedPassword })
+      .eq('id', employeeId);
 
     // Update password in users table and set password_reset_required flag
-    await pool.execute(
-      `UPDATE users 
-       SET password_hash = ?, password_reset_required = TRUE 
-       WHERE employee_id = ? OR email = ?`,
-      [hashedPassword, employee.employee_id, employee.email],
-    );
+    await supabase
+      .from('users')
+      .update({ password_hash: hashedPassword, password_reset_required: true })
+      .or(`employee_id.eq.${employee.employee_id},email.eq.${employee.email}`);
 
     // Log activity
     await logActivity({

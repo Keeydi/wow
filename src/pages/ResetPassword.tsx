@@ -19,9 +19,9 @@ const ResetPassword = () => {
       toast({
         variant: 'destructive',
         title: 'Invalid Link',
-        description: 'No reset token found. Please request a new password reset.',
+        description: 'No reset token found. Please contact your administrator.',
       });
-      navigate('/forgot-password');
+      navigate('/login');
     }
   }, [token, navigate, toast]);
 

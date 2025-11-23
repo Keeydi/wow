@@ -1,7 +1,6 @@
 import { Router } from 'express';
 import { z } from 'zod';
-import { pool } from '../db';
-import { RowDataPacket } from 'mysql2';
+import { supabase } from '../db';
 import multer from 'multer';
 import path from 'path';
 import fs from 'fs';
@@ -33,7 +32,7 @@ const upload = multer({
   },
 });
 
-interface DbSetting extends RowDataPacket {
+interface DbSetting {
   id: number;
   key: string;
   value: string;
@@ -53,12 +52,16 @@ const settingsSchema = z.object({
 // GET all settings
 router.get('/', async (req, res) => {
   try {
-    const [rows] = await pool.execute<DbSetting[]>(
-      'SELECT `key`, `value` FROM settings'
-    );
+    const { data: rows, error } = await supabase
+      .from('settings')
+      .select('key, value');
+
+    if (error) {
+      throw error;
+    }
 
     const settings: Record<string, string> = {};
-    rows.forEach((row) => {
+    (rows || []).forEach((row) => {
       settings[row.key] = row.value;
     });
 
@@ -85,23 +88,45 @@ router.put('/', upload.single('logo'), async (req, res) => {
     // Handle logo upload
     if (req.file) {
       const logoUrl = `/uploads/logos/${req.file.filename}`;
-      await pool.execute(
-        `INSERT INTO settings (\`key\`, \`value\`) 
-         VALUES ('logoUrl', ?) 
-         ON DUPLICATE KEY UPDATE \`value\` = ?`,
-        [logoUrl, logoUrl]
-      );
+      // Check if setting exists
+      const { data: existing } = await supabase
+        .from('settings')
+        .select('id')
+        .eq('key', 'logoUrl')
+        .single();
+
+      if (existing) {
+        await supabase
+          .from('settings')
+          .update({ value: logoUrl })
+          .eq('key', 'logoUrl');
+      } else {
+        await supabase
+          .from('settings')
+          .insert({ key: 'logoUrl', value: logoUrl });
+      }
     }
 
     // Update other settings
     for (const [key, value] of Object.entries(settings)) {
       if (value !== undefined) {
-        await pool.execute(
-          `INSERT INTO settings (\`key\`, \`value\`) 
-           VALUES (?, ?) 
-           ON DUPLICATE KEY UPDATE \`value\` = ?`,
-          [key, value, value]
-        );
+        // Check if setting exists
+        const { data: existing } = await supabase
+          .from('settings')
+          .select('id')
+          .eq('key', key)
+          .single();
+
+        if (existing) {
+          await supabase
+            .from('settings')
+            .update({ value })
+            .eq('key', key);
+        } else {
+          await supabase
+            .from('settings')
+            .insert({ key, value });
+        }
       }
     }
 

@@ -1,12 +1,11 @@
 import { Router } from 'express';
 import { z } from 'zod';
-import { pool } from '../db';
-import { RowDataPacket } from 'mysql2';
+import { supabase } from '../db';
 import { logActivity, getClientIp } from '../utils/activityLogger';
 
 const router = Router();
 
-interface DbCalendarEvent extends RowDataPacket {
+interface DbCalendarEvent {
   id: number;
   title: string;
   type: 'reminder' | 'event';
@@ -44,31 +43,29 @@ router.get('/', async (req, res) => {
   try {
     const { startDate, endDate, month, year } = req.query;
     
-    let query = 'SELECT id, title, type, description, event_date, event_time, created_by, created_at, updated_at FROM calendar_events';
-    const params: any[] = [];
-    const conditions: string[] = [];
+    let query = supabase
+      .from('calendar_events')
+      .select('id, title, type, description, event_date, event_time, created_by, created_at, updated_at')
+      .order('event_date', { ascending: true })
+      .order('created_at', { ascending: true });
 
     if (startDate && endDate) {
-      conditions.push('event_date BETWEEN ? AND ?');
-      params.push(startDate, endDate);
+      query = query.gte('event_date', startDate as string).lte('event_date', endDate as string);
     } else if (month && year) {
       // Get events for a specific month
       const start = `${year}-${String(month).padStart(2, '0')}-01`;
-      const endDate = new Date(parseInt(year as string), parseInt(month as string), 0).toISOString().split('T')[0];
-      conditions.push('event_date BETWEEN ? AND ?');
-      params.push(start, endDate);
+      const endDateStr = new Date(parseInt(year as string), parseInt(month as string), 0).toISOString().split('T')[0];
+      query = query.gte('event_date', start).lte('event_date', endDateStr);
     }
 
-    if (conditions.length > 0) {
-      query += ' WHERE ' + conditions.join(' AND ');
+    const { data: rows, error } = await query;
+
+    if (error) {
+      throw error;
     }
-
-    query += ' ORDER BY event_date ASC, created_at ASC';
-
-    const [rows] = await pool.execute<DbCalendarEvent[]>(query, params);
 
     return res.json({
-      data: rows.map(mapCalendarEventRow),
+      data: (rows || []).map(mapCalendarEventRow),
     });
   } catch (error) {
     console.error('Error fetching calendar events', error);
@@ -80,17 +77,18 @@ router.get('/', async (req, res) => {
 router.get('/:id', async (req, res) => {
   try {
     const { id } = req.params;
-    const [rows] = await pool.execute<DbCalendarEvent[]>(
-      'SELECT id, title, type, description, event_date, event_time, created_by, created_at, updated_at FROM calendar_events WHERE id = ?',
-      [id]
-    );
+    const { data: eventData, error } = await supabase
+      .from('calendar_events')
+      .select('id, title, type, description, event_date, event_time, created_by, created_at, updated_at')
+      .eq('id', id)
+      .single();
 
-    if (rows.length === 0) {
+    if (error || !eventData) {
       return res.status(404).json({ message: 'Calendar event not found' });
     }
 
     return res.json({
-      data: mapCalendarEventRow(rows[0]),
+      data: mapCalendarEventRow(eventData as DbCalendarEvent),
     });
   } catch (error) {
     console.error('Error fetching calendar event', error);
@@ -111,23 +109,29 @@ router.post('/', async (req, res) => {
   const { title, type, description, eventDate, eventTime, createdBy } = parseResult.data;
 
   try {
-    const [result] = await pool.execute(
-      'INSERT INTO calendar_events (title, type, description, event_date, event_time, created_by) VALUES (?, ?, ?, ?, ?, ?)',
-      [title, type, description || null, eventDate, eventTime || null, createdBy || null]
-    );
+    const { data: newEvent, error: insertError } = await supabase
+      .from('calendar_events')
+      .insert({
+        title,
+        type,
+        description: description || null,
+        event_date: eventDate,
+        event_time: eventTime || null,
+        created_by: createdBy || null,
+      })
+      .select('id, title, type, description, event_date, event_time, created_by, created_at, updated_at')
+      .single();
 
-    const insertId = (result as any).insertId;
-    const [rows] = await pool.execute<DbCalendarEvent[]>(
-      'SELECT id, title, type, description, event_date, event_time, created_by, created_at, updated_at FROM calendar_events WHERE id = ?',
-      [insertId]
-    );
+    if (insertError) {
+      throw insertError;
+    }
 
     // Log activity
     await logActivity({
       userName: createdBy || 'System',
       actionType: 'CREATE',
       resourceType: 'CalendarEvent',
-      resourceId: String(insertId),
+      resourceId: String(newEvent.id),
       resourceName: title,
       description: `${type === 'event' ? 'Event' : 'Reminder'} "${title}" was created for ${eventDate}${eventTime ? ` at ${eventTime}` : ''}`,
       ipAddress: getClientIp(req),
@@ -142,10 +146,14 @@ router.post('/', async (req, res) => {
           ? `${description.substring(0, 100)}${description.length > 100 ? '...' : ''}`
           : `Event scheduled for ${new Date(eventDate).toLocaleDateString()}${eventTime ? ` at ${eventTime}` : ''}`;
         
-        await pool.execute(
-          'INSERT INTO notifications (title, description, type, related_id) VALUES (?, ?, ?, ?)',
-          [title, notificationDescription, 'event', String(insertId)]
-        );
+        await supabase
+          .from('notifications')
+          .insert({
+            title,
+            description: notificationDescription,
+            type: 'event',
+            related_id: String(newEvent.id),
+          });
       } catch (notifError) {
         console.error('Error creating notification for event', notifError);
         // Don't fail the request if notification creation fails
@@ -154,7 +162,7 @@ router.post('/', async (req, res) => {
 
     return res.status(201).json({
       message: 'Calendar event created successfully',
-      data: mapCalendarEventRow(rows[0]),
+      data: mapCalendarEventRow(newEvent as DbCalendarEvent),
     });
   } catch (error) {
     console.error('Error creating calendar event', error);
@@ -185,69 +193,52 @@ router.put('/:id', async (req, res) => {
   const { id } = req.params;
 
   try {
-    const updateFields: string[] = [];
-    const updateValues: any[] = [];
+    const updateData: any = {};
+    if (title !== undefined) updateData.title = title;
+    if (type !== undefined) updateData.type = type;
+    if (description !== undefined) updateData.description = description;
+    if (eventDate !== undefined) updateData.event_date = eventDate;
+    if (eventTime !== undefined) updateData.event_time = eventTime;
+    if (createdBy !== undefined) updateData.created_by = createdBy;
 
-    if (title !== undefined) {
-      updateFields.push('title = ?');
-      updateValues.push(title);
-    }
-    if (type !== undefined) {
-      updateFields.push('type = ?');
-      updateValues.push(type);
-    }
-    if (description !== undefined) {
-      updateFields.push('description = ?');
-      updateValues.push(description);
-    }
-    if (eventDate !== undefined) {
-      updateFields.push('event_date = ?');
-      updateValues.push(eventDate);
-    }
-    if (eventTime !== undefined) {
-      updateFields.push('event_time = ?');
-      updateValues.push(eventTime);
-    }
-    if (createdBy !== undefined) {
-      updateFields.push('created_by = ?');
-      updateValues.push(createdBy);
-    }
-
-    if (updateFields.length === 0) {
+    if (Object.keys(updateData).length === 0) {
       return res.status(400).json({ message: 'No fields to update' });
     }
 
-    updateValues.push(id);
+    const { error: updateError } = await supabase
+      .from('calendar_events')
+      .update(updateData)
+      .eq('id', id);
 
-    await pool.execute(
-      `UPDATE calendar_events SET ${updateFields.join(', ')} WHERE id = ?`,
-      updateValues
-    );
+    if (updateError) {
+      throw updateError;
+    }
 
-    const [rows] = await pool.execute<DbCalendarEvent[]>(
-      'SELECT id, title, type, description, event_date, event_time, created_by, created_at, updated_at FROM calendar_events WHERE id = ?',
-      [id]
-    );
+    const { data: rows, error: fetchError } = await supabase
+      .from('calendar_events')
+      .select('id, title, type, description, event_date, event_time, created_by, created_at, updated_at')
+      .eq('id', id)
+      .single();
 
-    if (rows.length === 0) {
+    if (fetchError || !rows) {
       return res.status(404).json({ message: 'Calendar event not found' });
     }
 
     // Log activity
     await logActivity({
-      userName: createdBy || rows[0].created_by || 'System',
+      userName: createdBy || rows.created_by || 'System',
       actionType: 'UPDATE',
       resourceType: 'CalendarEvent',
       resourceId: id,
-      resourceName: title || rows[0].title,
-      description: `Calendar ${rows[0].type} "${rows[0].title}" was updated`,
+      resourceName: title || rows.title,
+      description: `Calendar ${rows.type} "${rows.title}" was updated`,
       ipAddress: getClientIp(req),
       status: 'success',
     });
 
     return res.json({
       message: 'Calendar event updated successfully',
-      data: mapCalendarEventRow(rows[0]),
+      data: mapCalendarEventRow(rows as DbCalendarEvent),
     });
   } catch (error) {
     console.error('Error updating calendar event', error);
@@ -270,20 +261,25 @@ router.delete('/:id', async (req, res) => {
 
   try {
     // Get event info before deletion
-    const [eventRows] = await pool.execute<DbCalendarEvent[]>(
-      'SELECT title, type, created_by FROM calendar_events WHERE id = ?',
-      [id]
-    );
-    const event = eventRows[0];
+    const { data: eventData, error: fetchError } = await supabase
+      .from('calendar_events')
+      .select('title, type, created_by')
+      .eq('id', id)
+      .single();
 
-    const [result] = await pool.execute(
-      'DELETE FROM calendar_events WHERE id = ?',
-      [id]
-    );
-
-    const affectedRows = (result as any).affectedRows;
-    if (affectedRows === 0) {
+    if (fetchError || !eventData) {
       return res.status(404).json({ message: 'Calendar event not found' });
+    }
+
+    const event = eventData as DbCalendarEvent;
+
+    const { error: deleteError } = await supabase
+      .from('calendar_events')
+      .delete()
+      .eq('id', id);
+
+    if (deleteError) {
+      throw deleteError;
     }
 
     // Log activity

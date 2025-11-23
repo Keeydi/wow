@@ -1,11 +1,10 @@
 import { Router } from 'express';
 import { z } from 'zod';
-import { pool } from '../db';
-import { RowDataPacket } from 'mysql2';
+import { supabase } from '../db';
 
 const router = Router();
 
-interface DbActivityLog extends RowDataPacket {
+interface DbActivityLog {
   id: number;
   user_id: number | null;
   user_name: string;
@@ -53,61 +52,35 @@ router.get('/', async (req, res) => {
   try {
     const { limit = '50', offset = '0', actionType, resourceType, status, userId } = req.query;
     
-    let query = `
-      SELECT id, user_id, user_name, action_type, resource_type, resource_id, resource_name,
-             description, ip_address, status, metadata, created_at
-      FROM activity_logs
-      WHERE 1=1
-    `;
-    const params: any[] = [];
+    let query = supabase
+      .from('activity_logs')
+      .select('id, user_id, user_name, action_type, resource_type, resource_id, resource_name, description, ip_address, status, metadata, created_at', { count: 'exact' })
+      .order('created_at', { ascending: false })
+      .range(parseInt(offset as string, 10), parseInt(offset as string, 10) + parseInt(limit as string, 10) - 1);
 
     if (actionType) {
-      query += ' AND action_type = ?';
-      params.push(actionType);
+      query = query.eq('action_type', actionType as string);
     }
     if (resourceType) {
-      query += ' AND resource_type = ?';
-      params.push(resourceType);
+      query = query.eq('resource_type', resourceType as string);
     }
     if (status) {
-      query += ' AND status = ?';
-      params.push(status);
+      query = query.eq('status', status as string);
     }
     if (userId) {
-      query += ' AND user_id = ?';
-      params.push(userId);
+      query = query.eq('user_id', userId as string);
     }
 
-    query += ' ORDER BY created_at DESC LIMIT ? OFFSET ?';
-    params.push(parseInt(limit as string, 10), parseInt(offset as string, 10));
+    const { data: rows, count, error } = await query;
 
-    const [rows] = await pool.execute<DbActivityLog[]>(query, params);
-
-    // Get total count for pagination
-    let countQuery = 'SELECT COUNT(*) as total FROM activity_logs WHERE 1=1';
-    const countParams: any[] = [];
-    if (actionType) {
-      countQuery += ' AND action_type = ?';
-      countParams.push(actionType);
-    }
-    if (resourceType) {
-      countQuery += ' AND resource_type = ?';
-      countParams.push(resourceType);
-    }
-    if (status) {
-      countQuery += ' AND status = ?';
-      countParams.push(status);
-    }
-    if (userId) {
-      countQuery += ' AND user_id = ?';
-      countParams.push(userId);
+    if (error) {
+      throw error;
     }
 
-    const [countRows] = await pool.execute<RowDataPacket[]>(countQuery, countParams);
-    const total = countRows[0]?.total || 0;
+    const total = count || 0;
 
     return res.json({
-      data: rows.map(mapActivityLogRow),
+      data: (rows || []).map(mapActivityLogRow),
       total,
       limit: parseInt(limit as string, 10),
       offset: parseInt(offset as string, 10),
@@ -123,17 +96,18 @@ router.get('/recent', async (req, res) => {
   try {
     const limit = parseInt(req.query.limit as string, 10) || 10;
     
-    const [rows] = await pool.execute<DbActivityLog[]>(
-      `SELECT id, user_id, user_name, action_type, resource_type, resource_id, resource_name,
-              description, ip_address, status, metadata, created_at
-       FROM activity_logs
-       ORDER BY created_at DESC
-       LIMIT ?`,
-      [limit]
-    );
+    const { data: rows, error } = await supabase
+      .from('activity_logs')
+      .select('id, user_id, user_name, action_type, resource_type, resource_id, resource_name, description, ip_address, status, metadata, created_at')
+      .order('created_at', { ascending: false })
+      .limit(limit);
+
+    if (error) {
+      throw error;
+    }
 
     return res.json({
-      data: rows.map(mapActivityLogRow),
+      data: (rows || []).map(mapActivityLogRow),
     });
   } catch (error) {
     console.error('Error fetching recent activity logs', error);
@@ -165,36 +139,30 @@ router.post('/', async (req, res) => {
   } = parseResult.data;
 
   try {
-    const [result] = await pool.execute(
-      `INSERT INTO activity_logs 
-        (user_id, user_name, action_type, resource_type, resource_id, resource_name,
-         description, ip_address, status, metadata)
-       VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
-      [
-        userId || null,
-        userName,
-        actionType,
-        resourceType,
-        resourceId || null,
-        resourceName || null,
-        description || null,
-        ipAddress || null,
+    const { data: newLog, error: insertError } = await supabase
+      .from('activity_logs')
+      .insert({
+        user_id: userId || null,
+        user_name: userName,
+        action_type: actionType,
+        resource_type: resourceType,
+        resource_id: resourceId || null,
+        resource_name: resourceName || null,
+        description: description || null,
+        ip_address: ipAddress || null,
         status,
-        metadata ? JSON.stringify(metadata) : null,
-      ]
-    );
+        metadata: metadata ? JSON.stringify(metadata) : null,
+      })
+      .select('id, user_id, user_name, action_type, resource_type, resource_id, resource_name, description, ip_address, status, metadata, created_at')
+      .single();
 
-    const insertId = (result as any).insertId;
-    const [rows] = await pool.execute<DbActivityLog[]>(
-      `SELECT id, user_id, user_name, action_type, resource_type, resource_id, resource_name,
-              description, ip_address, status, metadata, created_at
-       FROM activity_logs WHERE id = ?`,
-      [insertId]
-    );
+    if (insertError) {
+      throw insertError;
+    }
 
     return res.status(201).json({
       message: 'Activity log created successfully',
-      data: mapActivityLogRow(rows[0]),
+      data: mapActivityLogRow(newLog as DbActivityLog),
     });
   } catch (error) {
     console.error('Error creating activity log', error);

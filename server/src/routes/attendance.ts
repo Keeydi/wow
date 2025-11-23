@@ -1,6 +1,6 @@
 import { Router } from 'express';
 import { z } from 'zod';
-import { pool } from '../db';
+import { supabase } from '../db';
 import { DbAttendance } from '../types';
 import { logActivity, getClientIp } from '../utils/activityLogger';
 
@@ -43,47 +43,40 @@ router.get('/', async (req, res) => {
   const { employeeId, date, startDate, endDate, status } = req.query;
 
   try {
-    const conditions: string[] = [];
-    const params: any[] = [];
+    let query = supabase
+      .from('attendance')
+      .select('id, employee_id, employee_name, date, check_in, check_out, status, notes, check_in_image, check_out_image, created_at, updated_at')
+      .order('date', { ascending: false })
+      .order('check_in', { ascending: false });
 
     if (employeeId && typeof employeeId === 'string') {
-      conditions.push('employee_id = ?');
-      params.push(employeeId);
+      query = query.eq('employee_id', employeeId);
     }
 
     if (date && typeof date === 'string') {
-      conditions.push('date = ?');
-      params.push(date);
+      query = query.eq('date', date);
     }
 
     if (startDate && typeof startDate === 'string') {
-      conditions.push('date >= ?');
-      params.push(startDate);
+      query = query.gte('date', startDate);
     }
 
     if (endDate && typeof endDate === 'string') {
-      conditions.push('date <= ?');
-      params.push(endDate);
+      query = query.lte('date', endDate);
     }
 
     if (status && typeof status === 'string' && ['present', 'absent', 'late', 'half-day', 'leave'].includes(status)) {
-      conditions.push('status = ?');
-      params.push(status);
+      query = query.eq('status', status);
     }
 
-    const whereClause = conditions.length > 0 ? `WHERE ${conditions.join(' AND ')}` : '';
+    const { data: rows, error } = await query;
 
-    const [rows] = await pool.execute<DbAttendance[]>(
-      `SELECT id, employee_id, employee_name, date, check_in, check_out, status, notes, 
-              check_in_image, check_out_image, created_at, updated_at
-       FROM attendance
-       ${whereClause}
-       ORDER BY date DESC, check_in DESC`,
-      params,
-    );
+    if (error) {
+      throw error;
+    }
 
     return res.json({
-      data: rows.map(mapAttendanceRow),
+      data: (rows || []).map(mapAttendanceRow),
     });
   } catch (error) {
     console.error('Error fetching attendance', error);
@@ -94,20 +87,18 @@ router.get('/', async (req, res) => {
 // GET /attendance/:id - Get single attendance record
 router.get('/:id', async (req, res) => {
   try {
-    const [rows] = await pool.execute<DbAttendance[]>(
-      `SELECT id, employee_id, employee_name, date, check_in, check_out, status, notes, 
-              check_in_image, check_out_image, created_at, updated_at
-       FROM attendance
-       WHERE id = ?`,
-      [req.params.id],
-    );
+    const { data: attendanceData, error } = await supabase
+      .from('attendance')
+      .select('id, employee_id, employee_name, date, check_in, check_out, status, notes, check_in_image, check_out_image, created_at, updated_at')
+      .eq('id', req.params.id)
+      .single();
 
-    if (rows.length === 0) {
+    if (error || !attendanceData) {
       return res.status(404).json({ message: 'Attendance record not found' });
     }
 
     return res.json({
-      data: mapAttendanceRow(rows[0]),
+      data: mapAttendanceRow(attendanceData as DbAttendance),
     });
   } catch (error) {
     console.error('Error fetching attendance', error);
@@ -138,39 +129,74 @@ router.post('/', async (req, res) => {
   } = parseResult.data;
 
   try {
-    const [result] = await pool.execute(
-      `INSERT INTO attendance 
-       (employee_id, employee_name, date, check_in, check_out, status, notes, check_in_image, check_out_image)
-       VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)
-       ON DUPLICATE KEY UPDATE
-         check_in = COALESCE(VALUES(check_in), check_in),
-         check_out = COALESCE(VALUES(check_out), check_out),
-         status = VALUES(status),
-         notes = COALESCE(VALUES(notes), notes),
-         check_in_image = COALESCE(VALUES(check_in_image), check_in_image),
-         check_out_image = COALESCE(VALUES(check_out_image), check_out_image),
-         updated_at = CURRENT_TIMESTAMP`,
-      [
-        employeeId,
-        employeeName,
-        date,
-        checkIn || null,
-        checkOut || null,
-        status,
-        notes || null,
-        checkInImage || null,
-        checkOutImage || null,
-      ],
-    );
+    // Check if attendance record already exists for this employee and date
+    const { data: existingRecord } = await supabase
+      .from('attendance')
+      .select('id')
+      .eq('employee_id', employeeId)
+      .eq('date', date)
+      .single();
 
-    const insertId = (result as any).insertId;
+    let attendanceId: number;
+    let attendanceData: DbAttendance;
+
+    if (existingRecord) {
+      // Update existing record
+      const updateData: any = {
+        status,
+        updated_at: new Date().toISOString(),
+      };
+      if (checkIn !== undefined) updateData.check_in = checkIn || null;
+      if (checkOut !== undefined) updateData.check_out = checkOut || null;
+      if (notes !== undefined) updateData.notes = notes || null;
+      if (checkInImage !== undefined) updateData.check_in_image = checkInImage || null;
+      if (checkOutImage !== undefined) updateData.check_out_image = checkOutImage || null;
+
+      const { data: updatedData, error: updateError } = await supabase
+        .from('attendance')
+        .update(updateData)
+        .eq('id', existingRecord.id)
+        .select()
+        .single();
+
+      if (updateError) {
+        throw updateError;
+      }
+
+      attendanceId = existingRecord.id;
+      attendanceData = updatedData as DbAttendance;
+    } else {
+      // Insert new record
+      const { data: newRecord, error: insertError } = await supabase
+        .from('attendance')
+        .insert({
+          employee_id: employeeId,
+          employee_name: employeeName,
+          date,
+          check_in: checkIn || null,
+          check_out: checkOut || null,
+          status,
+          notes: notes || null,
+          check_in_image: checkInImage || null,
+          check_out_image: checkOutImage || null,
+        })
+        .select()
+        .single();
+
+      if (insertError) {
+        throw insertError;
+      }
+
+      attendanceId = newRecord.id;
+      attendanceData = newRecord as DbAttendance;
+    }
 
     // Log activity
     await logActivity({
       userName: req.body.createdBy || 'System',
       actionType: 'CREATE',
       resourceType: 'Attendance',
-      resourceId: String(insertId),
+      resourceId: String(attendanceId),
       resourceName: `${employeeName} - ${date}`,
       description: `Attendance record created for ${employeeName} (${employeeId}) on ${date}`,
       ipAddress: getClientIp(req),
@@ -178,17 +204,9 @@ router.post('/', async (req, res) => {
       metadata: { employeeId, date, status },
     });
 
-    const [newRows] = await pool.execute<DbAttendance[]>(
-      `SELECT id, employee_id, employee_name, date, check_in, check_out, status, notes, 
-              check_in_image, check_out_image, created_at, updated_at
-       FROM attendance
-       WHERE id = ?`,
-      [insertId],
-    );
-
     return res.status(201).json({
       message: 'Attendance record created successfully',
-      data: mapAttendanceRow(newRows[0]),
+      data: mapAttendanceRow(attendanceData),
     });
   } catch (error) {
     console.error('Error creating attendance', error);
@@ -219,62 +237,40 @@ router.put('/:id', async (req, res) => {
   } = parseResult.data;
 
   try {
-    // Build update query dynamically
-    const updates: string[] = [];
-    const params: any[] = [];
+    // Build update object
+    const updateData: any = {
+      updated_at: new Date().toISOString(),
+    };
 
-    if (employeeName !== undefined) {
-      updates.push('employee_name = ?');
-      params.push(employeeName);
-    }
-    if (checkIn !== undefined) {
-      updates.push('check_in = ?');
-      params.push(checkIn || null);
-    }
-    if (checkOut !== undefined) {
-      updates.push('check_out = ?');
-      params.push(checkOut || null);
-    }
-    if (status !== undefined) {
-      updates.push('status = ?');
-      params.push(status);
-    }
-    if (notes !== undefined) {
-      updates.push('notes = ?');
-      params.push(notes || null);
-    }
-    if (checkInImage !== undefined) {
-      updates.push('check_in_image = ?');
-      params.push(checkInImage || null);
-    }
-    if (checkOutImage !== undefined) {
-      updates.push('check_out_image = ?');
-      params.push(checkOutImage || null);
-    }
+    if (employeeName !== undefined) updateData.employee_name = employeeName;
+    if (checkIn !== undefined) updateData.check_in = checkIn || null;
+    if (checkOut !== undefined) updateData.check_out = checkOut || null;
+    if (status !== undefined) updateData.status = status;
+    if (notes !== undefined) updateData.notes = notes || null;
+    if (checkInImage !== undefined) updateData.check_in_image = checkInImage || null;
+    if (checkOutImage !== undefined) updateData.check_out_image = checkOutImage || null;
 
-    if (updates.length === 0) {
+    if (Object.keys(updateData).length === 1) {
       return res.status(400).json({ message: 'No fields to update' });
     }
 
-    params.push(req.params.id);
+    const { error: updateError } = await supabase
+      .from('attendance')
+      .update(updateData)
+      .eq('id', req.params.id);
 
-    await pool.execute(
-      `UPDATE attendance 
-       SET ${updates.join(', ')}, updated_at = CURRENT_TIMESTAMP
-       WHERE id = ?`,
-      params,
-    );
+    if (updateError) {
+      throw updateError;
+    }
 
     // Get updated record
-    const [updatedRows] = await pool.execute<DbAttendance[]>(
-      `SELECT id, employee_id, employee_name, date, check_in, check_out, status, notes, 
-              check_in_image, check_out_image, created_at, updated_at
-       FROM attendance
-       WHERE id = ?`,
-      [req.params.id],
-    );
+    const { data: updatedRows, error: fetchError } = await supabase
+      .from('attendance')
+      .select('id, employee_id, employee_name, date, check_in, check_out, status, notes, check_in_image, check_out_image, created_at, updated_at')
+      .eq('id', req.params.id)
+      .single();
 
-    if (updatedRows.length === 0) {
+    if (fetchError || !updatedRows) {
       return res.status(404).json({ message: 'Attendance record not found' });
     }
 
@@ -284,16 +280,16 @@ router.put('/:id', async (req, res) => {
       actionType: 'UPDATE',
       resourceType: 'Attendance',
       resourceId: req.params.id,
-      resourceName: `${updatedRows[0].employee_name} - ${updatedRows[0].date}`,
-      description: `Attendance record updated for ${updatedRows[0].employee_name} (${updatedRows[0].employee_id}) on ${updatedRows[0].date}`,
+      resourceName: `${updatedRows.employee_name} - ${updatedRows.date}`,
+      description: `Attendance record updated for ${updatedRows.employee_name} (${updatedRows.employee_id}) on ${updatedRows.date}`,
       ipAddress: getClientIp(req),
       status: 'success',
-      metadata: { employeeId: updatedRows[0].employee_id, date: updatedRows[0].date },
+      metadata: { employeeId: updatedRows.employee_id, date: updatedRows.date },
     });
 
     return res.json({
       message: 'Attendance record updated successfully',
-      data: mapAttendanceRow(updatedRows[0]),
+      data: mapAttendanceRow(updatedRows as DbAttendance),
     });
   } catch (error) {
     console.error('Error updating attendance', error);
@@ -305,18 +301,26 @@ router.put('/:id', async (req, res) => {
 router.delete('/:id', async (req, res) => {
   try {
     // Get attendance record before deleting
-    const [rows] = await pool.execute<DbAttendance[]>(
-      `SELECT employee_id, employee_name, date FROM attendance WHERE id = ?`,
-      [req.params.id],
-    );
+    const { data: attendanceData, error: fetchError } = await supabase
+      .from('attendance')
+      .select('employee_id, employee_name, date')
+      .eq('id', req.params.id)
+      .single();
 
-    if (rows.length === 0) {
+    if (fetchError || !attendanceData) {
       return res.status(404).json({ message: 'Attendance record not found' });
     }
 
-    const attendance = rows[0];
+    const attendance = attendanceData as DbAttendance;
 
-    await pool.execute('DELETE FROM attendance WHERE id = ?', [req.params.id]);
+    const { error: deleteError } = await supabase
+      .from('attendance')
+      .delete()
+      .eq('id', req.params.id);
+
+    if (deleteError) {
+      throw deleteError;
+    }
 
     // Log activity
     await logActivity({

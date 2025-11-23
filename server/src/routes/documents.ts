@@ -1,7 +1,6 @@
 import { Router } from 'express';
 import { z } from 'zod';
-import { pool } from '../db';
-import { RowDataPacket } from 'mysql2';
+import { supabase } from '../db';
 import { logActivity, getClientIp } from '../utils/activityLogger';
 import multer from 'multer';
 import path from 'path';
@@ -36,7 +35,7 @@ const upload = multer({
   },
 });
 
-interface DbDocument extends RowDataPacket {
+interface DbDocument {
   id: number;
   name: string;
   type: 'policy' | 'template' | 'employee-doc' | 'other';
@@ -84,37 +83,32 @@ router.get('/', async (req, res) => {
   try {
     const { type, category, employeeId, documentType } = req.query;
     
-    let query = `
-      SELECT id, name, type, category, file_path, file_url, file_size, employee_id, 
-             document_type, uploaded_by, description, created_at, updated_at
-      FROM documents
-      WHERE 1=1
-    `;
-    const params: any[] = [];
+    let query = supabase
+      .from('documents')
+      .select('id, name, type, category, file_path, file_url, file_size, employee_id, document_type, uploaded_by, description, created_at, updated_at')
+      .order('created_at', { ascending: false });
 
     if (type) {
-      query += ' AND type = ?';
-      params.push(type);
+      query = query.eq('type', type as string);
     }
     if (category) {
-      query += ' AND category = ?';
-      params.push(category);
+      query = query.eq('category', category as string);
     }
     if (employeeId) {
-      query += ' AND employee_id = ?';
-      params.push(employeeId);
+      query = query.eq('employee_id', employeeId as string);
     }
     if (documentType) {
-      query += ' AND document_type = ?';
-      params.push(documentType);
+      query = query.eq('document_type', documentType as string);
     }
 
-    query += ' ORDER BY created_at DESC';
+    const { data: rows, error } = await query;
 
-    const [rows] = await pool.execute<DbDocument[]>(query, params);
+    if (error) {
+      throw error;
+    }
 
     return res.json({
-      data: rows.map(mapDocumentRow),
+      data: (rows || []).map(mapDocumentRow),
     });
   } catch (error) {
     console.error('Error fetching documents', error);
@@ -126,19 +120,18 @@ router.get('/', async (req, res) => {
 router.get('/:id', async (req, res) => {
   try {
     const { id } = req.params;
-    const [rows] = await pool.execute<DbDocument[]>(
-      `SELECT id, name, type, category, file_path, file_url, file_size, employee_id, 
-              document_type, uploaded_by, description, created_at, updated_at
-       FROM documents WHERE id = ?`,
-      [id]
-    );
+    const { data: documentData, error } = await supabase
+      .from('documents')
+      .select('id, name, type, category, file_path, file_url, file_size, employee_id, document_type, uploaded_by, description, created_at, updated_at')
+      .eq('id', id)
+      .single();
 
-    if (rows.length === 0) {
+    if (error || !documentData) {
       return res.status(404).json({ message: 'Document not found' });
     }
 
     return res.json({
-      data: mapDocumentRow(rows[0]),
+      data: mapDocumentRow(documentData as DbDocument),
     });
   } catch (error) {
     console.error('Error fetching document by ID', error);
@@ -187,38 +180,33 @@ router.post('/', upload.single('file'), async (req, res) => {
     // Generate file URL (in production, this would be a proper URL)
     const fileUrl = `/uploads/${req.file.filename}`;
 
-    const [result] = await pool.execute(
-      `INSERT INTO documents 
-        (name, type, category, file_path, file_url, file_size, employee_id, document_type, uploaded_by, description)
-       VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
-      [
+    const { data: newDocument, error: insertError } = await supabase
+      .from('documents')
+      .insert({
         name,
         type,
-        category || null,
-        req.file.path,
-        fileUrl,
-        req.file.size,
-        employeeId || null,
-        documentType || null,
-        uploadedBy,
-        description || null,
-      ]
-    );
+        category: category || null,
+        file_path: req.file.path,
+        file_url: fileUrl,
+        file_size: req.file.size,
+        employee_id: employeeId || null,
+        document_type: documentType || null,
+        uploaded_by: uploadedBy,
+        description: description || null,
+      })
+      .select('id, name, type, category, file_path, file_url, file_size, employee_id, document_type, uploaded_by, description, created_at, updated_at')
+      .single();
 
-    const insertId = (result as any).insertId;
-    const [rows] = await pool.execute<DbDocument[]>(
-      `SELECT id, name, type, category, file_path, file_url, file_size, employee_id, 
-              document_type, uploaded_by, description, created_at, updated_at
-       FROM documents WHERE id = ?`,
-      [insertId]
-    );
+    if (insertError) {
+      throw insertError;
+    }
 
     // Log activity
     await logActivity({
       userName: uploadedBy,
       actionType: 'CREATE',
       resourceType: 'Document',
-      resourceId: String(insertId),
+      resourceId: String(newDocument.id),
       resourceName: name,
       description: `Document "${name}" was uploaded${employeeId ? ` for employee ${employeeId}` : ''}`,
       ipAddress: getClientIp(req),
@@ -228,7 +216,7 @@ router.post('/', upload.single('file'), async (req, res) => {
 
     return res.status(201).json({
       message: 'Document uploaded successfully',
-      data: mapDocumentRow(rows[0]),
+      data: mapDocumentRow(newDocument as DbDocument),
     });
   } catch (error) {
     console.error('Error creating document', error);
@@ -264,16 +252,15 @@ router.put('/:id', upload.single('file'), async (req, res) => {
     const { name, category, description } = req.body;
 
     // Get existing document
-    const [existingRows] = await pool.execute<DbDocument[]>(
-      'SELECT * FROM documents WHERE id = ?',
-      [id]
-    );
+    const { data: existingDoc, error: fetchError } = await supabase
+      .from('documents')
+      .select('*')
+      .eq('id', id)
+      .single();
 
-    if (existingRows.length === 0) {
+    if (fetchError || !existingDoc) {
       return res.status(404).json({ message: 'Document not found' });
     }
-
-    const existingDoc = existingRows[0];
     let fileUrl = existingDoc.file_url;
     let filePath = existingDoc.file_path;
     let fileSize = existingDoc.file_size;
@@ -295,32 +282,37 @@ router.put('/:id', upload.single('file'), async (req, res) => {
     }
 
     // Update document
-    await pool.execute(
-      `UPDATE documents 
-       SET name = ?, category = ?, description = ?, file_url = ?, file_path = ?, file_size = ?, updated_at = NOW()
-       WHERE id = ?`,
-      [
-        name || existingDoc.name,
-        category !== undefined ? category : existingDoc.category,
-        description !== undefined ? description : existingDoc.description,
-        fileUrl,
-        filePath,
-        fileSize,
-        id,
-      ]
-    );
+    const { error: updateError } = await supabase
+      .from('documents')
+      .update({
+        name: name || existingDoc.name,
+        category: category !== undefined ? category : existingDoc.category,
+        description: description !== undefined ? description : existingDoc.description,
+        file_url: fileUrl,
+        file_path: filePath,
+        file_size: fileSize,
+        updated_at: new Date().toISOString(),
+      })
+      .eq('id', id);
+
+    if (updateError) {
+      throw updateError;
+    }
 
     // Get updated document
-    const [updatedRows] = await pool.execute<DbDocument[]>(
-      `SELECT id, name, type, category, file_path, file_url, file_size, employee_id, 
-              document_type, uploaded_by, description, created_at, updated_at
-       FROM documents WHERE id = ?`,
-      [id]
-    );
+    const { data: updatedRows, error: fetchUpdatedError } = await supabase
+      .from('documents')
+      .select('id, name, type, category, file_path, file_url, file_size, employee_id, document_type, uploaded_by, description, created_at, updated_at')
+      .eq('id', id)
+      .single();
+
+    if (fetchUpdatedError || !updatedRows) {
+      throw fetchUpdatedError;
+    }
 
     return res.json({
       message: 'Document updated successfully',
-      data: mapDocumentRow(updatedRows[0]),
+      data: mapDocumentRow(updatedRows as DbDocument),
     });
   } catch (error) {
     console.error('Error updating document', error);
@@ -334,15 +326,17 @@ router.delete('/:id', async (req, res) => {
     const { id } = req.params;
 
     // Get document info before deletion
-    const [docRows] = await pool.execute<DbDocument[]>(
-      'SELECT name, file_path, uploaded_by FROM documents WHERE id = ?',
-      [id]
-    );
-    const doc = docRows[0];
+    const { data: docData, error: fetchError } = await supabase
+      .from('documents')
+      .select('name, file_path, uploaded_by')
+      .eq('id', id)
+      .single();
 
-    if (!doc) {
+    if (fetchError || !docData) {
       return res.status(404).json({ message: 'Document not found' });
     }
+
+    const doc = docData as DbDocument;
 
     // Delete file from filesystem
     if (doc.file_path && fs.existsSync(doc.file_path)) {
@@ -354,11 +348,13 @@ router.delete('/:id', async (req, res) => {
       }
     }
 
-    const [result] = await pool.execute('DELETE FROM documents WHERE id = ?', [id]);
+    const { error: deleteError } = await supabase
+      .from('documents')
+      .delete()
+      .eq('id', id);
 
-    const affectedRows = (result as any).affectedRows;
-    if (affectedRows === 0) {
-      return res.status(404).json({ message: 'Document not found' });
+    if (deleteError) {
+      throw deleteError;
     }
 
     // Log activity
